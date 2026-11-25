@@ -21,6 +21,8 @@ watch(
     if (hint) {
       activeTab.value = hint
       slidersOpen.value = true
+    } else {
+      slidersOpen.value = false
     }
   },
   { immediate: true }

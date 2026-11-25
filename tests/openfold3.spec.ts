@@ -16,7 +16,9 @@ describe('OpenFold3 architecture specification', () => {
     const edgeIds = new Set(openfold3Model.edges.map(e => e.id))
 
     for (const step of openfold3Model.steps) {
-      expect(step.focusBlockIds.length).toBeGreaterThan(0)
+      if (step.id !== 'overview') {
+        expect(step.focusBlockIds.length).toBeGreaterThan(0)
+      }
       for (const id of step.focusBlockIds) {
         expect(blockIds.has(id)).toBe(true)
       }

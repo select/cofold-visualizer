@@ -2,7 +2,12 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { DataFlowEdge, FoldingModelSpec, TensorBlock3D } from '~/types/architecture'
 import { MoleculeCloud } from './moleculeCloud'
-import { createLabelSprite, createTensorMatrixTexture } from './textures'
+import {
+  createEdgeLabelSprite,
+  createLabelSprite,
+  createStageHeaderTexture,
+  createTensorMatrixTexture,
+} from './textures'
 
 export interface SceneEngineCallbacks {
   onSelectBlock?: (blockId: string | null) => void
@@ -25,6 +30,9 @@ interface EdgeVisual {
   curve: THREE.CatmullRomCurve3
   tube: THREE.Mesh
   tubeMat: THREE.MeshStandardMaterial
+  arrows: THREE.Mesh[]
+  arrowMat: THREE.MeshStandardMaterial
+  labelSprite: THREE.Sprite | null
   beads: THREE.Mesh[]
   beadOffsets: number[]
   beadSpeed: number
@@ -68,14 +76,18 @@ export class SceneEngine {
   private recyclePulseBoost = 0
 
   private cameraFlying = false
-  private readonly desiredCamPos = new THREE.Vector3(3, 14, 44)
-  private readonly desiredTarget = new THREE.Vector3(3, 0, 0)
+  private readonly baseCamPos = new THREE.Vector3(3, 22, 68)
+  private readonly baseTarget = new THREE.Vector3(3, -0.5, 0)
+  private readonly desiredCamPos = new THREE.Vector3(3, 22, 68)
+  private readonly desiredTarget = new THREE.Vector3(3, -0.5, 0)
 
   private rafId: number | null = null
   private lastTime = performance.now()
   private disposed = false
 
   private readonly beadGeo = new THREE.SphereGeometry(0.11, 10, 10)
+  private readonly arrowGeo = new THREE.ConeGeometry(0.16, 0.42, 8)
+  private readonly upVec = new THREE.Vector3(0, 1, 0)
   private readonly disposableTextures: THREE.Texture[] = []
   private readonly disposableGeometries: THREE.BufferGeometry[] = []
   private readonly disposableMaterials: THREE.Material[] = []
@@ -98,14 +110,15 @@ export class SceneEngine {
     container.appendChild(this.renderer.domElement)
 
     this.scene = new THREE.Scene()
-    this.camera = new THREE.PerspectiveCamera(44, width / height, 0.2, 260)
+    this.camera = new THREE.PerspectiveCamera(44, width / height, 0.2, 300)
+    this.applyAspectFraming()
     this.camera.position.copy(this.desiredCamPos)
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.08
     this.controls.minDistance = 4
-    this.controls.maxDistance = 95
+    this.controls.maxDistance = 140
     this.controls.maxPolarAngle = Math.PI * 0.85
     this.controls.target.copy(this.desiredTarget)
     this.controls.addEventListener('start', this.handleControlsStart)
@@ -167,7 +180,7 @@ export class SceneEngine {
   private applyThemeColors() {
     const bgHex = this.isDark ? 0x161618 : 0xfafaf9
     this.scene.background = new THREE.Color(bgHex)
-    this.scene.fog = new THREE.Fog(bgHex, 60, 145)
+    this.scene.fog = new THREE.Fog(bgHex, 100, 230)
 
     this.hemiLight.intensity = this.isDark ? 0.72 : 0.95
     this.hemiLight.groundColor.setHex(this.isDark ? 0x18181b : 0xcbd5e1)
@@ -183,6 +196,8 @@ export class SceneEngine {
     this.currentModel = model
     this.clearModelScene()
 
+    this.buildStageFloorPlates()
+
     for (const block of model.blocks) {
       const visual = this.buildBlockVisual(block)
       this.blockVisuals.set(block.id, visual)
@@ -195,11 +210,78 @@ export class SceneEngine {
       if (edgeVisual) {
         this.edgeVisuals.push(edgeVisual)
         this.modelGroup.add(edgeVisual.tube)
+        edgeVisual.arrows.forEach(a => this.modelGroup.add(a))
+        if (edgeVisual.labelSprite) {
+          this.modelGroup.add(edgeVisual.labelSprite)
+        }
         edgeVisual.beads.forEach(b => this.modelGroup.add(b))
       }
     }
 
     this.refreshVisualStates()
+  }
+
+  private buildStageFloorPlates() {
+    const stages: Array<{
+      title: string
+      cx: number
+      cz: number
+      width: number
+      depth: number
+      color: number
+    }> = [
+      { title: 'Inputs & Embedder', cx: -24.0, cz: 0.2, width: 15.0, depth: 9.2, color: 0x3b82f6 },
+      { title: 'Templates & MSA', cx: -6.0, cz: -0.2, width: 19.6, depth: 11.6, color: 0x14b8a6 },
+      { title: 'Pairformer 48×', cx: 8.5, cz: -0.4, width: 8.0, depth: 9.2, color: 0x9333ea },
+      { title: 'EDM Diffusion 200×', cx: 26.0, cz: 1.3, width: 24.0, depth: 5.8, color: 0xe11d48 },
+      { title: 'Confidence Heads', cx: 20.5, cz: -3.7, width: 11.4, depth: 3.4, color: 0x16a34a },
+    ]
+
+    for (const st of stages) {
+      const padGeo = new THREE.PlaneGeometry(st.width, st.depth)
+      this.disposableGeometries.push(padGeo)
+
+      const padMat = new THREE.MeshBasicMaterial({
+        color: st.color,
+        transparent: true,
+        opacity: this.isDark ? 0.06 : 0.045,
+        depthWrite: false,
+      })
+      this.disposableMaterials.push(padMat)
+
+      const padMesh = new THREE.Mesh(padGeo, padMat)
+      padMesh.rotation.x = -Math.PI / 2
+      padMesh.position.set(st.cx, -7.75, st.cz)
+      this.modelGroup.add(padMesh)
+
+      const borderGeo = new THREE.EdgesGeometry(padGeo)
+      this.disposableGeometries.push(borderGeo)
+      const borderMat = new THREE.LineBasicMaterial({
+        color: st.color,
+        transparent: true,
+        opacity: this.isDark ? 0.26 : 0.22,
+      })
+      this.disposableMaterials.push(borderMat)
+      const border = new THREE.LineSegments(borderGeo, borderMat)
+      border.rotation.x = -Math.PI / 2
+      border.position.set(st.cx, -7.74, st.cz)
+      this.modelGroup.add(border)
+
+      const headerTex = createStageHeaderTexture(st.title, this.isDark)
+      this.disposableTextures.push(headerTex)
+      const headerGeo = new THREE.PlaneGeometry(Math.min(st.width - 0.8, 7.6), 1.4)
+      this.disposableGeometries.push(headerGeo)
+      const headerMat = new THREE.MeshBasicMaterial({
+        map: headerTex,
+        transparent: true,
+        depthWrite: false,
+      })
+      this.disposableMaterials.push(headerMat)
+      const headerMesh = new THREE.Mesh(headerGeo, headerMat)
+      headerMesh.rotation.x = -Math.PI / 2
+      headerMesh.position.set(st.cx, -7.73, st.cz + st.depth / 2 - 0.85)
+      this.modelGroup.add(headerMesh)
+    }
   }
 
   private clearModelScene() {
@@ -314,7 +396,7 @@ export class SceneEngine {
       this.disposableTextures.push(labelSprite.material.map)
     }
     this.disposableMaterials.push(labelSprite.material)
-    labelSprite.position.set(0, sy / 2 + 0.95, 0)
+    labelSprite.position.set(0, sy / 2 + 0.56, 0)
     group.add(labelSprite)
 
     return {
@@ -329,31 +411,66 @@ export class SceneEngine {
     }
   }
 
-  private buildEdgeVisual(edge: DataFlowEdge): EdgeVisual | null {
-    const fromBlock = this.blockVisuals.get(edge.from)
-    const toBlock = this.blockVisuals.get(edge.to)
-    if (!fromBlock || !toBlock) return null
+  private anchorToBlockFace(block: BlockVisual, targetPos: THREE.Vector3): THREE.Vector3 {
+    const center = block.group.position
+    const [sx, sy, sz] = block.spec.size
+    const dir = targetPos.clone().sub(center)
+    if (dir.lengthSq() < 1e-6) return center.clone()
 
-    const start = fromBlock.group.position.clone()
-    const end = toBlock.group.position.clone()
+    const tx = Math.abs(dir.x) > 1e-5 ? sx / 2 / Math.abs(dir.x) : Infinity
+    const ty = Math.abs(dir.y) > 1e-5 ? sy / 2 / Math.abs(dir.y) : Infinity
+    const tz = Math.abs(dir.z) > 1e-5 ? sz / 2 / Math.abs(dir.z) : Infinity
+    const t = Math.min(tx, ty, tz, 1)
+    return center.clone().addScaledVector(dir, t)
+  }
+
+  private buildEdgeCurve(
+    edge: DataFlowEdge,
+    fromBlock: BlockVisual,
+    toBlock: BlockVisual
+  ): THREE.CatmullRomCurve3 {
+    const hasCp = Boolean(edge.controlPoints && edge.controlPoints.length > 0)
+    const firstTarget = hasCp
+      ? new THREE.Vector3(...edge.controlPoints![0]!)
+      : toBlock.group.position
+    const lastTarget = hasCp
+      ? new THREE.Vector3(...edge.controlPoints![edge.controlPoints!.length - 1]!)
+      : fromBlock.group.position
+
+    const start = this.anchorToBlockFace(fromBlock, firstTarget)
+    const end = this.anchorToBlockFace(toBlock, lastTarget)
 
     const pts: THREE.Vector3[] = [start]
-    if (edge.controlPoints && edge.controlPoints.length > 0) {
-      for (const cp of edge.controlPoints) {
+    if (hasCp) {
+      for (const cp of edge.controlPoints!) {
         pts.push(new THREE.Vector3(cp[0], cp[1], cp[2]))
       }
     } else {
       const mid = start.clone().lerp(end, 0.5)
       if (edge.kind === 'pair-bias') {
-        mid.z -= 0.8
+        mid.z += 0.6
       } else if (edge.kind === 'residual') {
-        mid.y -= 0.7
+        mid.y -= 0.65
       }
       pts.push(mid)
     }
     pts.push(end)
+    return new THREE.CatmullRomCurve3(pts)
+  }
 
-    const curve = new THREE.CatmullRomCurve3(pts)
+  private orientArrowAt(arrow: THREE.Mesh, curve: THREE.CatmullRomCurve3, t: number) {
+    const pt = curve.getPointAt(t)
+    const tangent = curve.getTangentAt(t).normalize()
+    arrow.position.copy(pt)
+    arrow.quaternion.setFromUnitVectors(this.upVec, tangent)
+  }
+
+  private buildEdgeVisual(edge: DataFlowEdge): EdgeVisual | null {
+    const fromBlock = this.blockVisuals.get(edge.from)
+    const toBlock = this.blockVisuals.get(edge.to)
+    if (!fromBlock || !toBlock) return null
+
+    const curve = this.buildEdgeCurve(edge, fromBlock, toBlock)
     const radius = edge.kind === 'recycle' ? 0.065 : 0.042
     const tubeGeo = new THREE.TubeGeometry(curve, 36, radius, 8, false)
     this.disposableGeometries.push(tubeGeo)
@@ -369,6 +486,36 @@ export class SceneEngine {
     })
     this.disposableMaterials.push(tubeMat)
     const tube = new THREE.Mesh(tubeGeo, tubeMat)
+
+    const arrowMat = new THREE.MeshStandardMaterial({
+      color: colorHex,
+      emissive: colorHex,
+      emissiveIntensity: 0.25,
+      roughness: 0.35,
+      transparent: true,
+      opacity: 0.75,
+    })
+    this.disposableMaterials.push(arrowMat)
+
+    const arrows: THREE.Mesh[] = []
+    const arrowTs = edge.kind === 'recycle' ? [0.48, 0.92] : [0.92]
+    for (const t of arrowTs) {
+      const arrow = new THREE.Mesh(this.arrowGeo, arrowMat)
+      this.orientArrowAt(arrow, curve, t)
+      arrows.push(arrow)
+    }
+
+    let labelSprite: THREE.Sprite | null = null
+    if (edge.label) {
+      labelSprite = createEdgeLabelSprite(edge.label, colorHex, this.isDark)
+      if (labelSprite.material.map) {
+        this.disposableTextures.push(labelSprite.material.map)
+      }
+      this.disposableMaterials.push(labelSprite.material)
+      const midPt = curve.getPointAt(0.5)
+      labelSprite.position.set(midPt.x, midPt.y + 0.38, midPt.z)
+      labelSprite.visible = false
+    }
 
     const beadCount = edge.kind === 'recycle' ? 3 : 2
     const beads: THREE.Mesh[] = []
@@ -390,6 +537,9 @@ export class SceneEngine {
       curve,
       tube,
       tubeMat,
+      arrows,
+      arrowMat,
+      labelSprite,
       beads,
       beadOffsets,
       beadSpeed: edge.kind === 'recycle' ? 0.28 : 0.36,
@@ -451,21 +601,75 @@ export class SceneEngine {
     this.refreshVisualStates()
   }
 
+  private applyAspectFraming() {
+    const aspectScale = this.camera.aspect < 1.25 ? 1.25 / Math.max(0.55, this.camera.aspect) : 1
+    const offset = this.baseCamPos.clone().sub(this.baseTarget).multiplyScalar(aspectScale)
+    this.desiredTarget.copy(this.baseTarget)
+    this.desiredCamPos.copy(this.baseTarget).add(offset)
+  }
+
   public flyToCamera(position: [number, number, number], target: [number, number, number]) {
-    this.desiredCamPos.set(position[0], position[1], position[2])
-    this.desiredTarget.set(target[0], target[1], target[2])
+    this.baseCamPos.set(position[0], position[1], position[2])
+    this.baseTarget.set(target[0], target[1], target[2])
+    this.applyAspectFraming()
     this.cameraFlying = true
+  }
+
+  private updateDynamicPairBiasEdge() {
+    const ev = this.edgeVisuals.find(e => e.spec.id === 'e-pf-pair-to-single')
+    const pairVisual = this.blockVisuals.get('pairformer-pair')
+    const singleVisual = this.blockVisuals.get('pairformer-single')
+    if (!ev || !pairVisual || !singleVisual) return
+
+    const sliceCount = pairVisual.sliceMeshes.length
+    if (sliceCount === 0) return
+
+    const activeIdx = Math.min(
+      sliceCount - 1,
+      Math.max(0, Math.round(((this.pairformerBlock - 1) / 47) * (sliceCount - 1)))
+    )
+    const activeMesh = pairVisual.sliceMeshes[activeIdx]!
+    const activeX = pairVisual.group.position.x + activeMesh.position.x
+
+    const start = new THREE.Vector3(
+      activeX,
+      pairVisual.group.position.y + pairVisual.spec.size[1] / 2 + 0.25,
+      pairVisual.group.position.z + 0.85
+    )
+    const end = new THREE.Vector3(
+      activeX,
+      singleVisual.group.position.y - singleVisual.spec.size[1] / 2 + 0.25,
+      singleVisual.group.position.z + 0.85
+    )
+    const mid = start.clone().lerp(end, 0.5)
+    mid.z += 0.65
+
+    ev.curve = new THREE.CatmullRomCurve3([start, mid, end])
+    const newGeo = new THREE.TubeGeometry(ev.curve, 24, 0.052, 8, false)
+    ev.tube.geometry.dispose()
+    ev.tube.geometry = newGeo
+
+    if (ev.arrows[0]) {
+      this.orientArrowAt(ev.arrows[0], ev.curve, 0.92)
+    }
+    if (ev.labelSprite) {
+      const labelPt = ev.curve.getPointAt(0.5)
+      ev.labelSprite.position.set(labelPt.x + 1.5, labelPt.y, labelPt.z + 0.3)
+    }
   }
 
   private refreshVisualStates() {
     const hasFocus = this.focusBlockIds.size > 0
+    const unfocusedOpacity = this.isDark ? 0.5 : 0.28
+    const unfocusedLineOpacity = this.isDark ? 0.4 : 0.16
+    const unfocusedLabelOpacity = this.isDark ? 0.6 : 0.25
 
     for (const [id, visual] of this.blockVisuals) {
       const isSelected = id === this.selectedBlockId
       const isHovered = id === this.hoveredBlockId
       const isFocused = !hasFocus || this.focusBlockIds.has(id)
 
-      const targetOpacity = isSelected || isHovered ? 1.0 : isFocused ? 0.96 : 0.28
+      const targetOpacity = isSelected || isHovered ? 1.0 : isFocused ? 0.96 : unfocusedOpacity
       const scaleBoost = isSelected ? 1.04 : isHovered ? 1.025 : 1.0
       visual.group.scale.setScalar(scaleBoost)
 
@@ -483,6 +687,14 @@ export class SceneEngine {
         )
       }
 
+      visual.sliceMeshes.forEach((mesh, idx) => {
+        const isSliceActive = activeSliceIdx === idx
+        if (id === 'pairformer-pair' || id === 'pairformer-single') {
+          mesh.position.z = isSliceActive ? 0.85 : 0
+          mesh.position.y = isSliceActive ? 0.25 : 0
+        }
+      })
+
       visual.sliceMaterials.forEach((mat, idx) => {
         mat.opacity = targetOpacity
         const isSliceActive = activeSliceIdx === idx
@@ -492,6 +704,9 @@ export class SceneEngine {
         } else if (isHovered) {
           mat.emissive.copy(visual.baseColor)
           mat.emissiveIntensity = 0.22
+        } else if (this.isDark && !isFocused) {
+          mat.emissive.copy(visual.baseColor)
+          mat.emissiveIntensity = 0.1
         } else {
           mat.emissive.setHex(0x000000)
           mat.emissiveIntensity = 0
@@ -500,17 +715,26 @@ export class SceneEngine {
 
       visual.edgeLines.forEach(line => {
         const lm = line.material as THREE.LineBasicMaterial
-        lm.opacity = isSelected || isHovered ? 0.95 : isFocused ? 0.55 : 0.16
+        lm.opacity = isSelected || isHovered ? 0.95 : isFocused ? 0.55 : unfocusedLineOpacity
       })
 
-      visual.labelSprite.material.opacity = isSelected || isHovered || isFocused ? 1.0 : 0.25
+      visual.labelSprite.material.opacity =
+        isSelected || isHovered || isFocused ? 1.0 : unfocusedLabelOpacity
     }
 
+    this.updateDynamicPairBiasEdge()
+
+    const hasHighlightedEdges = this.highlightEdgeIds.size > 0
     for (const ev of this.edgeVisuals) {
-      const highlighted = this.highlightEdgeIds.size === 0 || this.highlightEdgeIds.has(ev.spec.id)
+      const highlighted = !hasHighlightedEdges || this.highlightEdgeIds.has(ev.spec.id)
       ev.isHighlighted = highlighted
-      ev.tubeMat.opacity = highlighted ? 0.72 : 0.14
+      ev.tubeMat.opacity = highlighted ? 0.72 : this.isDark ? 0.24 : 0.14
       ev.tubeMat.emissiveIntensity = highlighted ? 0.35 : 0.04
+      ev.arrowMat.opacity = highlighted ? 0.92 : this.isDark ? 0.28 : 0.16
+      ev.arrowMat.emissiveIntensity = highlighted ? 0.45 : 0.05
+      if (ev.labelSprite) {
+        ev.labelSprite.visible = hasHighlightedEdges && highlighted
+      }
       ev.beads.forEach(b => {
         b.visible = highlighted
       })
@@ -614,6 +838,8 @@ export class SceneEngine {
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(width, height)
+    this.applyAspectFraming()
+    this.cameraFlying = true
   }
 
   public dispose() {
@@ -634,6 +860,7 @@ export class SceneEngine {
 
     this.clearModelScene()
     this.beadGeo.dispose()
+    this.arrowGeo.dispose()
     this.gridHelper.dispose()
     this.renderer.dispose()
 

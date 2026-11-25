@@ -202,23 +202,31 @@ export class MoleculeCloud {
     }
     this.atomMesh.instanceMatrix.needsUpdate = true
 
-    const bondVisibility = THREE.MathUtils.clamp((progress - 0.25) / 0.75, 0.05, 1)
-    for (let i = 0; i < this.bonds.length; i++) {
-      const bond = this.bonds[i]!
-      const atomA = this.atoms[bond.a]!
-      const atomB = this.atoms[bond.b]!
-      this.tmpA.lerpVectors(atomA.noisy, atomA.folded, progress)
-      this.tmpB.lerpVectors(atomB.noisy, atomB.folded, progress)
+    if (progress < 0.35) {
+      this.bondMesh.visible = false
+      this.bondMat.opacity = 0
+    } else {
+      this.bondMesh.visible = true
+      const fade = THREE.MathUtils.clamp((progress - 0.35) / 0.4, 0, 1)
+      this.bondMat.opacity = 0.85 * fade
+      const bondVisibility = THREE.MathUtils.clamp(fade, 0.1, 1)
+      for (let i = 0; i < this.bonds.length; i++) {
+        const bond = this.bonds[i]!
+        const atomA = this.atoms[bond.a]!
+        const atomB = this.atoms[bond.b]!
+        this.tmpA.lerpVectors(atomA.noisy, atomA.folded, progress)
+        this.tmpB.lerpVectors(atomB.noisy, atomB.folded, progress)
 
-      this.tmpDir.subVectors(this.tmpB, this.tmpA)
-      const len = Math.max(0.001, this.tmpDir.length())
-      this.dummy.position.addVectors(this.tmpA, this.tmpB).multiplyScalar(0.5)
-      this.dummy.quaternion.setFromUnitVectors(this.upVec, this.tmpDir.normalize())
-      this.dummy.scale.set(bondVisibility, len, bondVisibility)
-      this.dummy.updateMatrix()
-      this.bondMesh.setMatrixAt(i, this.dummy.matrix)
+        this.tmpDir.subVectors(this.tmpB, this.tmpA)
+        const len = Math.max(0.001, this.tmpDir.length())
+        this.dummy.position.addVectors(this.tmpA, this.tmpB).multiplyScalar(0.5)
+        this.dummy.quaternion.setFromUnitVectors(this.upVec, this.tmpDir.normalize())
+        this.dummy.scale.set(bondVisibility, len, bondVisibility)
+        this.dummy.updateMatrix()
+        this.bondMesh.setMatrixAt(i, this.dummy.matrix)
+      }
+      this.bondMesh.instanceMatrix.needsUpdate = true
     }
-    this.bondMesh.instanceMatrix.needsUpdate = true
   }
 
   public dispose() {
