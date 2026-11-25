@@ -1,0 +1,70 @@
+{
+  "name": "co-fold-visualized",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "prepare": "simple-git-hooks",
+    "lint": "oxlint . && eslint .",
+    "lint:fix": "oxlint --fix . && eslint . --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "typecheck": "nuxt typecheck",
+    "commitlint": "commitlint --edit",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm lint-staged",
+    "commit-msg": "pnpm commitlint --edit $1"
+  },
+  "lint-staged": {
+    "*.{js,ts,vue}": [
+      "oxlint",
+      "eslint",
+      "oxfmt --check --no-error-on-unmatched-pattern"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "oxfmt --check --no-error-on-unmatched-pattern"
+    ]
+  },
+  "dependencies": {
+    "@pinia/nuxt": "^1.0.3",
+    "@vueuse/core": "^15.1.0",
+    "@vueuse/nuxt": "^15.1.0",
+    "nuxt": "^4.7.0",
+    "pinia": "^4.1.0",
+    "three": "^0.187.0",
+    "vue": "^3.5.46",
+    "vue-router": "^5.5.1"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@iconify-json/lucide": "^1.2.159",
+    "@iconify-json/mdi": "^1.2.3",
+    "@nuxt/eslint": "^1.17.0",
+    "@types/node": "^26.6.6",
+    "@types/three": "^0.187.0",
+    "@unocss/nuxt": "^66.13.0",
+    "@unocss/preset-wind4": "^66.13.0",
+    "@unocss/reset": "^66.13.0",
+    "@vue/test-utils": "^2.6.0",
+    "eslint": "^10.15.0",
+    "eslint-plugin-oxlint": "^1.95.0",
+    "happy-dom": "^21.0.4",
+    "lint-staged": "^17.6.2",
+    "oxfmt": "^0.80.0",
+    "oxlint": "^1.95.0",
+    "simple-git-hooks": "^2.14.0",
+    "typescript": "^6.0.3",
+    "unocss": "^66.13.0",
+    "vitest": "^5.1.1",
+    "vue-tsc": "^3.3.14"
+  }
+}
