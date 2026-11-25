@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { DataFlowEdge, FoldingModelSpec, TensorBlock3D } from '~/types/architecture'
+import { DetailedAttentionView, type AttentionContextKey } from './DetailedAttentionView'
 import { MoleculeCloud } from './moleculeCloud'
 import {
   createAxisTagSprite,
@@ -33,6 +34,7 @@ interface BlockVisual {
   sliceMaterials: THREE.MeshStandardMaterial[]
   edgeLines: THREE.LineSegments[]
   labelSprite: THREE.Sprite
+  compactLabelSprite: THREE.Sprite
   axisTagSprites: THREE.Sprite[]
   sweepMesh: THREE.Mesh | null
   sweepMat: THREE.MeshBasicMaterial | null
@@ -69,6 +71,9 @@ export class SceneEngine {
   private gridHelper: THREE.GridHelper
 
   private readonly modelGroup = new THREE.Group()
+  private detailedView: DetailedAttentionView | null = null
+  private detailLevel: 'simplified' | 'detailed' = 'simplified'
+  private detailedContext: AttentionContextKey = 'pairformer'
   private readonly blockVisuals = new Map<string, BlockVisual>()
   private readonly edgeVisuals: EdgeVisual[] = []
   private readonly hitTargets: THREE.Object3D[] = []
@@ -189,6 +194,33 @@ export class SceneEngine {
     if (this.currentModel) {
       this.setModel(this.currentModel)
     }
+    if (this.detailedView) {
+      this.detailedView.rebuild(this.detailedContext, this.isDark)
+    }
+  }
+
+  public setDetailLevel(
+    level: 'simplified' | 'detailed',
+    contextKey: AttentionContextKey = 'pairformer'
+  ) {
+    this.detailLevel = level
+    this.detailedContext = contextKey
+    if (level === 'detailed') {
+      this.modelGroup.visible = false
+      if (!this.detailedView) {
+        this.detailedView = new DetailedAttentionView(contextKey, this.isDark)
+        this.scene.add(this.detailedView.group)
+      } else {
+        this.detailedView.rebuild(contextKey, this.isDark)
+        this.detailedView.group.visible = true
+      }
+      this.flyToCamera([14.0, 7.5, 23.0], [0.5, -1.2, 0.0])
+    } else {
+      this.modelGroup.visible = true
+      if (this.detailedView) {
+        this.detailedView.group.visible = false
+      }
+    }
   }
 
   private applyThemeColors() {
@@ -248,7 +280,7 @@ export class SceneEngine {
       { title: 'Templates & MSA', cx: -6.0, cz: -0.2, width: 19.6, depth: 11.6, color: 0x14b8a6 },
       { title: 'Pairformer 48×', cx: 8.5, cz: -0.4, width: 8.0, depth: 9.2, color: 0x9333ea },
       { title: 'EDM Diffusion 200×', cx: 26.0, cz: 1.6, width: 24.0, depth: 5.4, color: 0xe11d48 },
-      { title: 'Confidence Heads', cx: 20.5, cz: -4.2, width: 11.4, depth: 3.6, color: 0x16a34a },
+      { title: 'Confidence Heads', cx: 20.5, cz: -5.0, width: 11.8, depth: 3.4, color: 0x16a34a },
     ]
 
     for (const st of stages) {
@@ -416,13 +448,30 @@ export class SceneEngine {
       this.disposableTextures.push(labelSprite.material.map)
     }
     this.disposableMaterials.push(labelSprite.material)
+
+    const compactLabelSprite = createLabelSprite(
+      block.shortLabel,
+      '',
+      block.color,
+      this.isDark,
+      true
+    )
+    if (compactLabelSprite.material.map) {
+      this.disposableTextures.push(compactLabelSprite.material.map)
+    }
+    this.disposableMaterials.push(compactLabelSprite.material)
+    compactLabelSprite.visible = false
+
     if (block.id === 'pairformer-pair') {
       labelSprite.position.set(0, -sy / 2 - 1.15, sz / 2 + 0.5)
+      compactLabelSprite.position.copy(labelSprite.position)
     } else {
       const labelExtraY = block.id === 'denoised-coords' ? 1.35 : 0.98
       labelSprite.position.set(0, sy / 2 + labelExtraY, 0)
+      compactLabelSprite.position.copy(labelSprite.position)
     }
     group.add(labelSprite)
+    group.add(compactLabelSprite)
 
     const axisTagSprites: THREE.Sprite[] = []
     const tagOffsets: Array<[number, number, number]> = [
@@ -473,6 +522,7 @@ export class SceneEngine {
       sliceMaterials,
       edgeLines,
       labelSprite,
+      compactLabelSprite,
       axisTagSprites,
       sweepMesh,
       sweepMat,
@@ -668,7 +718,18 @@ export class SceneEngine {
       }
       this.disposableMaterials.push(labelSprite.material)
       const midPt = curve.getPointAt(0.5)
-      labelSprite.position.set(midPt.x, midPt.y + 0.42, midPt.z)
+      const tan = curve.getTangentAt(0.5).normalize()
+      const normal = new THREE.Vector3(-tan.y, tan.x, 0)
+      if (normal.lengthSq() < 1e-4) normal.set(0, 1, 0)
+      normal.normalize()
+      if (normal.y < 0) normal.negate()
+      const extraOffset =
+        edge.id === 'e-diff-cond-to-atom-enc' || edge.id === 'e-diff-cond-to-dit' ? 0.9 : 0.65
+      labelSprite.position.set(
+        midPt.x + normal.x * extraOffset * 0.45,
+        midPt.y + Math.max(0.55, normal.y * extraOffset),
+        midPt.z + 0.25
+      )
       labelSprite.visible = false
     }
 
@@ -774,15 +835,12 @@ export class SceneEngine {
   }
 
   private applyAspectFraming() {
-    const nextFov = this.camera.aspect < 1.1 ? 48 : 44
+    const nextFov = this.camera.aspect < 1.1 ? 46 : 44
     if (this.camera.fov !== nextFov) {
       this.camera.fov = nextFov
       this.camera.updateProjectionMatrix()
     }
-    const aspectScale =
-      this.camera.aspect < 1.35
-        ? Math.min(1.32, Math.pow(1.35 / Math.max(0.65, this.camera.aspect), 0.55))
-        : 1
+    const aspectScale = Math.min(1.55, Math.max(1, 1.25 / Math.max(0.55, this.camera.aspect)))
     const offset = this.baseCamPos.clone().sub(this.baseTarget).multiplyScalar(aspectScale)
     this.desiredTarget.copy(this.baseTarget)
     this.desiredCamPos.copy(this.baseTarget).add(offset)
@@ -925,7 +983,13 @@ export class SceneEngine {
       visual.labelSprite.renderOrder = isActiveLabel ? 20 : 0
       visual.labelSprite.material.depthTest = !isActiveLabel
 
-      const showAxisTags = isSelected || isHovered
+      visual.compactLabelSprite.visible = false
+      visual.compactLabelSprite.material.opacity = isActiveLabel ? 1.0 : unfocusedLabelOpacity
+      visual.compactLabelSprite.renderOrder = isActiveLabel ? 20 : 0
+      visual.compactLabelSprite.material.depthTest = !isActiveLabel
+
+      const showAxisTags =
+        isSelected || isHovered || (hasFocus && isFocused && this.focusBlockIds.size <= 3)
       visual.axisTagSprites.forEach(tag => {
         tag.visible = showAxisTags
       })
@@ -955,14 +1019,14 @@ export class SceneEngine {
         ev.ribbonMat.opacity = 0.1
         ev.outlineMat.opacity = 0.12
       } else if (inspectingBlock) {
-        ev.ribbonMat.opacity = isIncident ? 0.56 : this.isDark ? 0.12 : 0.08
-        ev.outlineMat.opacity = isIncident ? 0.62 : this.isDark ? 0.14 : 0.09
+        ev.ribbonMat.opacity = isIncident ? (this.isDark ? 0.56 : 0.62) : this.isDark ? 0.12 : 0.08
+        ev.outlineMat.opacity = isIncident ? (this.isDark ? 0.62 : 0.72) : this.isDark ? 0.14 : 0.09
       } else if (!hasHighlightedEdges) {
-        ev.ribbonMat.opacity = 0.34
-        ev.outlineMat.opacity = 0.4
+        ev.ribbonMat.opacity = this.isDark ? 0.34 : 0.4
+        ev.outlineMat.opacity = this.isDark ? 0.4 : 0.48
       } else if (highlighted) {
-        ev.ribbonMat.opacity = 0.56
-        ev.outlineMat.opacity = 0.62
+        ev.ribbonMat.opacity = this.isDark ? 0.56 : 0.62
+        ev.outlineMat.opacity = this.isDark ? 0.62 : 0.72
       } else {
         ev.ribbonMat.opacity = this.isDark ? 0.16 : 0.11
         ev.outlineMat.opacity = this.isDark ? 0.18 : 0.12
@@ -1049,19 +1113,43 @@ export class SceneEngine {
     }
 
     this.controls.update()
+
+    if (this.detailLevel === 'detailed' && this.detailedView) {
+      this.detailedView.update(dt, this.isFlowPlaying)
+      this.renderer.render(this.scene, this.camera)
+      return
+    }
+
     this.moleculeCloud?.update(dt)
 
     const hasFocus = this.focusBlockIds.size > 0
+    const isOverviewMode = !hasFocus && this.selectedBlockId === null
     for (const [id, visual] of this.blockVisuals) {
       const isFocused = !hasFocus || this.focusBlockIds.has(id)
       const isActiveLabel = id === this.selectedBlockId || id === this.hoveredBlockId || isFocused
-      if (isActiveLabel && visual.labelSprite.visible) {
+      const wantsVisible = isOverviewMode
+        ? OVERVIEW_LANDMARK_IDS.has(id) || id === this.hoveredBlockId
+        : true
+
+      if (wantsVisible) {
         visual.labelSprite.getWorldPosition(this.scratchVec)
         const dist = this.camera.position.distanceTo(this.scratchVec)
-        const s = THREE.MathUtils.clamp(dist * 0.088, 2.8, 6.2)
-        visual.labelSprite.scale.set(s, s * 0.234, 1)
+        const useCompact = isOverviewMode && dist > 36 && id !== this.hoveredBlockId
+
+        visual.labelSprite.visible = !useCompact
+        visual.compactLabelSprite.visible = useCompact
+
+        const activeSprite = useCompact ? visual.compactLabelSprite : visual.labelSprite
+        const aspect = useCompact ? 136 / 768 : 200 / 768
+        if (isActiveLabel) {
+          const s = THREE.MathUtils.clamp(dist * 0.115, 3.4, 7.8)
+          activeSprite.scale.set(s, s * aspect, 1)
+        } else {
+          activeSprite.scale.set(2.8, 2.8 * aspect, 1)
+        }
       } else {
-        visual.labelSprite.scale.set(2.5, 2.5 * 0.234, 1)
+        visual.labelSprite.visible = false
+        visual.compactLabelSprite.visible = false
       }
 
       if (visual.sweepMesh && visual.sweepMat && visual.sweepMesh.visible) {
@@ -1080,17 +1168,29 @@ export class SceneEngine {
 
     const pos = new THREE.Vector3()
     for (const ev of this.edgeVisuals) {
+      if (ev.labelSprite && ev.labelSprite.visible) {
+        ev.labelSprite.getWorldPosition(this.scratchVec)
+        const dist = this.camera.position.distanceTo(this.scratchVec)
+        const es = THREE.MathUtils.clamp(dist * 0.085, 2.6, 5.2)
+        ev.labelSprite.scale.set(es, es * 0.175, 1)
+      }
+
       if (ev.spec.kind === 'recycle' && this.recyclePulseBoost > 0) {
-        ev.ribbonMat.opacity = Math.min(0.85, 0.56 + this.recyclePulseBoost * 0.28)
+        ev.ribbonMat.opacity = Math.min(0.85, 0.62 + this.recyclePulseBoost * 0.24)
       } else if (
-        ev.spec.id === 'e-msa-stack-to-pf-pair' &&
         ev.isHighlighted &&
         this.isFlowPlaying &&
-        this.selectedBlockId === null
+        this.selectedBlockId === null &&
+        (ev.spec.id === 'e-msa-stack-to-pf-pair' ||
+          (!this.isDark && this.highlightEdgeIds.size > 0))
       ) {
         const pulse = 0.5 + 0.5 * Math.sin(now * 0.0045)
-        ev.ribbonMat.opacity = 0.56 + 0.24 * pulse
-        ev.outlineMat.opacity = 0.62 + 0.22 * pulse
+        const baseR = this.isDark ? 0.56 : 0.62
+        const baseO = this.isDark ? 0.62 : 0.72
+        ev.ribbonMat.opacity =
+          baseR + (ev.spec.id === 'e-msa-stack-to-pf-pair' ? 0.24 : 0.14) * pulse
+        ev.outlineMat.opacity =
+          baseO + (ev.spec.id === 'e-msa-stack-to-pf-pair' ? 0.22 : 0.12) * pulse
       }
       if (!this.isFlowPlaying) continue
       const speedMult = ev.spec.kind === 'recycle' ? 1 + this.recyclePulseBoost * 1.5 : 1
@@ -1138,8 +1238,11 @@ export class SceneEngine {
       a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
 
     for (const visual of this.blockVisuals.values()) {
-      if (!visual.labelSprite.visible || visual.labelSprite.material.opacity < 0.25) continue
-      const rect = computeRect(visual.labelSprite, 4)
+      const activeSprite = visual.compactLabelSprite.visible
+        ? visual.compactLabelSprite
+        : visual.labelSprite
+      if (!activeSprite.visible || activeSprite.material.opacity < 0.25) continue
+      const rect = computeRect(activeSprite, 12)
       if (rect) placedRects.push(rect)
     }
 
@@ -1155,7 +1258,7 @@ export class SceneEngine {
         continue
       }
 
-      const rect = computeRect(ev.labelSprite, 4)
+      const rect = computeRect(ev.labelSprite, 12)
       if (!rect) {
         ev.labelSprite.visible = false
         continue
@@ -1197,6 +1300,10 @@ export class SceneEngine {
     this.controls.dispose()
 
     this.clearModelScene()
+    if (this.detailedView) {
+      this.detailedView.dispose()
+      this.detailedView = null
+    }
     this.beadGeo.dispose()
     this.gridHelper.dispose()
     this.renderer.dispose()

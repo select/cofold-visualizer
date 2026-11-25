@@ -17,6 +17,7 @@ describe('useVisualizerStore', () => {
     expect(store.pairformerBlock).toBe(24)
     expect(store.diffusionStep).toBe(160)
     expect(store.theme).toBe('light')
+    expect(store.detailLevel).toBe('simplified')
   })
 
   it('navigates steps and clears selectedBlockId on step change', () => {
@@ -81,5 +82,19 @@ describe('useVisualizerStore', () => {
     const prevNonce = store.cameraResetNonce
     store.resetCamera()
     expect(store.cameraResetNonce).toBe(prevNonce + 1)
+  })
+
+  it('switches and toggles detailLevel between simplified and detailed', () => {
+    const store = useVisualizerStore()
+    expect(store.detailLevel).toBe('simplified')
+
+    store.setDetailLevel('detailed')
+    expect(store.detailLevel).toBe('detailed')
+
+    store.toggleDetailLevel()
+    expect(store.detailLevel).toBe('simplified')
+
+    store.toggleDetailLevel()
+    expect(store.detailLevel).toBe('detailed')
   })
 })

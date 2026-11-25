@@ -5,6 +5,7 @@ import type { FoldingModelSpec, TensorBlock3D, WalkthroughStep } from '~/types/a
 
 export type VisualizerTheme = 'light' | 'dark'
 export type VisualizerViewMode = 'split' | 'canvas' | 'docs'
+export type DetailLevel = 'simplified' | 'detailed'
 
 function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
@@ -25,6 +26,7 @@ export const useVisualizerStore = defineStore('visualizer', {
     diffusionStep: 160,
     cameraResetNonce: 0,
     viewMode: 'split' as VisualizerViewMode,
+    detailLevel: 'simplified' as DetailLevel,
     sidebarOpen: true,
     commandPaletteOpen: false,
   }),
@@ -157,6 +159,14 @@ export const useVisualizerStore = defineStore('visualizer', {
 
     setViewMode(mode: VisualizerViewMode) {
       this.viewMode = mode
+    },
+
+    setDetailLevel(level: DetailLevel) {
+      this.detailLevel = level
+    },
+
+    toggleDetailLevel() {
+      this.detailLevel = this.detailLevel === 'simplified' ? 'detailed' : 'simplified'
     },
 
     toggleSidebar() {

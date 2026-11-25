@@ -62,6 +62,12 @@ function categoryLabel(cat: string): string {
   return cat.charAt(0).toUpperCase() + cat.slice(1)
 }
 
+function formatSourcePath(path: string): string {
+  const parts = path.split('/').filter(Boolean)
+  if (parts.length <= 2) return path
+  return `…/${parts.slice(-2).join('/')}`
+}
+
 watch(
   () => [store.activeStepIndex, store.selectedBlockId],
   async () => {
@@ -163,9 +169,12 @@ watch(
                   :href="block.codeRef.url"
                   target="_blank"
                   rel="noopener noreferrer"
+                  :title="block.codeRef.file"
                   class="group inline-flex max-w-full items-center gap-1 text-n-text underline decoration-n-border underline-offset-3 hover:decoration-n-muted"
                 >
-                  <span class="n-mono truncate text-[12.5px]">{{ block.codeRef.file }}</span>
+                  <span class="n-mono truncate text-[12.5px]">{{
+                    formatSourcePath(block.codeRef.file)
+                  }}</span>
                   <span class="i-lucide-arrow-up-right h-3.5 w-3.5 shrink-0 text-n-muted"></span>
                 </a>
                 <p v-if="block.codeRef.symbol" class="mt-0.5 text-[12px] text-n-muted">
@@ -296,10 +305,13 @@ watch(
                   :href="step.codeRef.url"
                   target="_blank"
                   rel="noopener noreferrer"
+                  :title="step.codeRef.file"
                   class="inline-flex max-w-full items-center gap-1 text-n-text underline decoration-n-border underline-offset-3 hover:decoration-n-muted"
                 >
                   <span class="i-mdi-github h-3.5 w-3.5 shrink-0 text-n-muted"></span>
-                  <span class="n-mono truncate text-[12.5px]">{{ step.codeRef.file }}</span>
+                  <span class="n-mono truncate text-[12.5px]">{{
+                    formatSourcePath(step.codeRef.file)
+                  }}</span>
                   <span class="i-lucide-arrow-up-right h-3.5 w-3.5 shrink-0 text-n-muted"></span>
                 </a>
               </dd>

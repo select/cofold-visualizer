@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { resolveAttentionContext } from '~/engine/DetailedAttentionView'
 import { SceneEngine } from '~/engine/SceneEngine'
 import { useVisualizerStore } from '~/stores/useVisualizerStore'
 
@@ -55,6 +56,12 @@ onMounted(() => {
   engine.setDiffusionStep(store.diffusionStep)
   engine.setSelectedBlock(store.selectedBlockId)
   syncStepCameraAndFocus()
+  if (store.detailLevel === 'detailed') {
+    engine.setDetailLevel(
+      'detailed',
+      resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
+    )
+  }
 
   resizeObserver = new ResizeObserver(() => {
     engine?.resize()
@@ -73,14 +80,48 @@ watch(
 watch(
   () => store.activeStep,
   () => {
-    syncStepCameraAndFocus()
+    if (store.detailLevel === 'detailed') {
+      engine?.setDetailLevel(
+        'detailed',
+        resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
+      )
+    } else {
+      syncStepCameraAndFocus()
+    }
   }
 )
 
 watch(
   () => store.cameraResetNonce,
   () => {
-    syncStepCameraAndFocus()
+    if (store.detailLevel === 'detailed') {
+      engine?.setDetailLevel(
+        'detailed',
+        resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
+      )
+    } else {
+      syncStepCameraAndFocus()
+    }
+  }
+)
+
+watch(
+  () => store.detailLevel,
+  level => {
+    if (!engine) return
+    if (level === 'detailed') {
+      engine.setDetailLevel(
+        'detailed',
+        resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
+      )
+    } else {
+      engine.setDetailLevel('simplified')
+      if (store.selectedBlockId) {
+        engine.focusBlock(store.selectedBlockId)
+      } else {
+        syncStepCameraAndFocus()
+      }
+    }
   }
 )
 
@@ -88,6 +129,10 @@ watch(
   () => store.selectedBlockId,
   id => {
     engine?.setSelectedBlock(id)
+    if (store.detailLevel === 'detailed') {
+      engine?.setDetailLevel('detailed', resolveAttentionContext(store.activeStep?.id, id))
+      return
+    }
     if (id) {
       engine?.focusBlock(id)
     } else if (store.activeStep) {

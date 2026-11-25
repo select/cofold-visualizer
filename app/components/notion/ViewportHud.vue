@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { ATTENTION_PRESETS, resolveAttentionContext } from '~/engine/DetailedAttentionView'
 import { useVisualizerStore } from '~/stores/useVisualizerStore'
 import type { InteractiveHint } from '~/types/architecture'
 import { diffusionSigma, formatSigma } from '~/utils/diffusion'
@@ -85,8 +86,17 @@ function onSlider(event: Event) {
 }
 
 const hovered = computed(() =>
-  store.hoveredBlock && store.hoveredBlock.id !== store.selectedBlockId ? store.hoveredBlock : null
+  store.detailLevel === 'simplified' &&
+  store.hoveredBlock &&
+  store.hoveredBlock.id !== store.selectedBlockId
+    ? store.hoveredBlock
+    : null
 )
+
+const detailedPreset = computed(() => {
+  const key = resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
+  return ATTENTION_PRESETS[key]
+})
 
 const tooltipStyle = computed(() => {
   const ptr = store.hoverPointer
@@ -107,6 +117,31 @@ const tooltipStyle = computed(() => {
 
 <template>
   <div ref="hudRef" class="pointer-events-none absolute inset-0 z-10">
+    <!-- Detailed attention heads badge -->
+    <div
+      v-if="store.detailLevel === 'detailed'"
+      class="pointer-events-none absolute inset-x-0 top-3 flex justify-center px-3"
+    >
+      <div
+        class="n-surface-float pointer-events-auto flex max-w-full items-center gap-2 px-3 py-1.5 text-[12px]"
+      >
+        <span
+          class="h-2 w-2 shrink-0 rounded-full"
+          :style="{ backgroundColor: detailedPreset.accentColor }"
+        ></span>
+        <span class="truncate font-medium text-n-text">{{ detailedPreset.badgeText }}</span>
+        <div class="mx-0.5 h-3.5 w-px shrink-0 bg-n-border"></div>
+        <button
+          type="button"
+          class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-n-muted transition-colors hover:bg-n-hover hover:text-n-text"
+          @click="store.setDetailLevel('simplified')"
+        >
+          <span class="i-lucide-layers h-3 w-3"></span>
+          Back to Simplified
+        </button>
+      </div>
+    </div>
+
     <!-- Hovered tensor tooltip -->
     <Transition name="n-pop">
       <div

@@ -496,7 +496,7 @@ export const openfold3Model: FoldingModelSpec = {
       category: 'head',
       shape: '[N_token, N_token, 128]',
       dims: ['4 Pairformer blocks', '39 distance bins', '3.25–50.75 Å'],
-      position: [17.5, -5.2, -3.5],
+      position: [17.5, -5.8, -4.6],
       size: [3.0, 2.4, 1.8],
       stackCount: 4,
       color: '#22c55e',
@@ -523,7 +523,7 @@ export const openfold3Model: FoldingModelSpec = {
       category: 'head',
       shape: 'pLDDT [50] · PAE [64] · Disto [64]',
       dims: ['pLDDT (50 bins)', 'PAE (64, 0–32 Å)', 'Distogram (64, 2–22 Å)'],
-      position: [23.5, -5.2, -3.5],
+      position: [23.5, -5.8, -4.6],
       size: [3.4, 2.6, 1.4],
       color: '#16a34a',
       matrixStyle: 'heatmap',
@@ -661,10 +661,10 @@ export const openfold3Model: FoldingModelSpec = {
       kind: 'recycle',
       label: 's_prev (10 cycles)',
       controlPoints: [
-        [8.5, 6.2, -3.4],
-        [6.5, 9.0, -3.6],
-        [-11.8, 9.0, -3.6],
-        [-13.8, 6.2, -2.6],
+        [8.5, 6.2, -4.0],
+        [6.5, 9.2, -4.2],
+        [-11.8, 9.2, -4.0],
+        [-13.8, 3.6, -1.0],
       ],
     },
     {
@@ -674,10 +674,10 @@ export const openfold3Model: FoldingModelSpec = {
       kind: 'recycle',
       label: 'z_prev (10 cycles)',
       controlPoints: [
-        [8.5, 3.5, 4.8],
-        [6.5, 7.8, 5.0],
-        [-11.8, 7.8, 5.0],
-        [-13.8, 4.8, 2.8],
+        [8.5, 3.6, 4.8],
+        [6.5, 7.6, 5.2],
+        [-11.8, 7.6, 4.8],
+        [-13.8, 3.6, 0.5],
       ],
     },
     {
@@ -801,7 +801,7 @@ export const openfold3Model: FoldingModelSpec = {
       highlightEdgeIds: [],
       camera: {
         position: [-6.0, 26.0, 62.0],
-        target: [3.0, -0.5, 0.0],
+        target: [3.0, -1.1, 0.0],
       },
       interactiveHint: null,
     },
@@ -844,7 +844,7 @@ export const openfold3Model: FoldingModelSpec = {
       highlightEdgeIds: ['e-ref-to-atom-enc', 'e-inp-to-s-input'],
       camera: {
         position: [-29.0, 4.5, 16.0],
-        target: [-27.5, 0.0, 1.0],
+        target: [-27.5, -0.6, 1.0],
       },
       interactiveHint: null,
     },
@@ -893,7 +893,7 @@ export const openfold3Model: FoldingModelSpec = {
       ],
       camera: {
         position: [-20.5, 4.5, 16.5],
-        target: [-20.5, 0.2, 0.0],
+        target: [-20.5, -0.4, 0.0],
       },
       interactiveHint: null,
     },
@@ -940,7 +940,7 @@ export const openfold3Model: FoldingModelSpec = {
       ],
       camera: {
         position: [-2.0, 9.5, 28.0],
-        target: [-2.5, 2.5, 0.0],
+        target: [-2.5, 1.9, 0.0],
       },
       interactiveHint: 'cycle',
     },
@@ -980,7 +980,7 @@ export const openfold3Model: FoldingModelSpec = {
       highlightEdgeIds: ['e-recycle-to-template', 'e-template-to-pf-pair'],
       camera: {
         position: [-7.0, 1.5, 16.0],
-        target: [-6.5, -2.5, 2.5],
+        target: [-6.5, -3.1, 2.5],
       },
       interactiveHint: null,
     },
@@ -1029,7 +1029,7 @@ export const openfold3Model: FoldingModelSpec = {
       ],
       camera: {
         position: [-1.0, 6.5, 13.0],
-        target: [-0.5, 2.0, -3.2],
+        target: [-0.5, 1.4, -3.2],
       },
       interactiveHint: null,
     },
@@ -1073,7 +1073,7 @@ export const openfold3Model: FoldingModelSpec = {
       highlightEdgeIds: ['e-pf-pair-to-single'],
       camera: {
         position: [16.0, 6.2, 16.0],
-        target: [8.5, 0.4, -0.4],
+        target: [8.5, -0.2, -0.4],
       },
       interactiveHint: 'pairformerBlock',
     },
@@ -1117,7 +1117,7 @@ export const openfold3Model: FoldingModelSpec = {
       ],
       camera: {
         position: [15.5, 3.8, 15.0],
-        target: [15.5, 0.4, -0.2],
+        target: [15.5, -0.2, -0.2],
       },
       interactiveHint: null,
     },
@@ -1172,8 +1172,8 @@ export const openfold3Model: FoldingModelSpec = {
         'e-atom-dec-to-coords',
       ],
       camera: {
-        position: [31.0, 4.5, 25.5],
-        target: [30.5, -2.0, 1.0],
+        position: [28.5, 4.8, 26.5],
+        target: [28.0, -2.2, 0.5],
       },
       interactiveHint: 'diffusionStep',
     },
@@ -1216,8 +1216,8 @@ export const openfold3Model: FoldingModelSpec = {
       focusBlockIds: ['aux-pairformer', 'confidence-outputs', 'denoised-coords'],
       highlightEdgeIds: ['e-pf-pair-to-aux', 'e-coords-to-aux', 'e-aux-to-heads'],
       camera: {
-        position: [26.5, -1.5, 16.5],
-        target: [24.0, -4.5, -1.5],
+        position: [23.0, 1.0, 17.5],
+        target: [21.5, -4.1, -1.0],
       },
       interactiveHint: null,
     },
