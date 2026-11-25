@@ -133,13 +133,11 @@ onBeforeUnmount(() => {
 
     <div
       v-if="webglError"
-      class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-slate-50 dark:bg-zinc-900"
+      class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-n-canvas"
     >
-      <div class="max-w-md space-y-2 rounded-xl border border-slate-200 dark:border-zinc-800 p-6">
-        <p class="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-          3D Viewport Unavailable
-        </p>
-        <p class="text-xs text-slate-600 dark:text-zinc-400">
+      <div class="max-w-md space-y-2 rounded-lg border border-n-border bg-n-bg p-6">
+        <p class="text-sm font-semibold text-n-text">3D Viewport Unavailable</p>
+        <p class="text-xs text-n-muted">
           {{ webglError }}
         </p>
       </div>

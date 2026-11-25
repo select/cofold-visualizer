@@ -165,7 +165,7 @@ export class SceneEngine {
   }
 
   private applyThemeColors() {
-    const bgHex = this.isDark ? 0x141417 : 0xf8fafc
+    const bgHex = this.isDark ? 0x161618 : 0xfafaf9
     this.scene.background = new THREE.Color(bgHex)
     this.scene.fog = new THREE.Fog(bgHex, 60, 145)
 

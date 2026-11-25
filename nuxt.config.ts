@@ -16,9 +16,18 @@ export default defineNuxtConfig({
 
   modules: ['@unocss/nuxt', '@pinia/nuxt', '@vueuse/nuxt', '@nuxt/eslint'],
 
+  css: ['~/assets/css/notion.css'],
+
   app: {
     head: {
-      title: 'Co-Fold Visualized',
+      title: 'Co-Fold Visualized · OpenFold3',
+      meta: [
+        {
+          name: 'description',
+          content:
+            'An interactive 3D, Notion-style walkthrough of the OpenFold3 co-folding architecture.',
+        },
+      ],
       script: [
         {
           innerHTML: `

@@ -1,0 +1,350 @@
+/* Notion-like design tokens for Co-Fold Visualized */
+:root {
+  --n-bg: #ffffff;
+  --n-canvas: #fafaf9;
+  --n-sidebar: #f7f7f5;
+  --n-hover: rgba(55, 53, 47, 0.06);
+  --n-hover-solid: #efefed;
+  --n-active: rgba(55, 53, 47, 0.09);
+  --n-border: #e9e9e7;
+  --n-text: #37352f;
+  --n-text-muted: #787774;
+  --n-text-faint: #a5a39e;
+  --n-accent: #2383e2;
+  --n-code-bg: rgba(135, 131, 120, 0.15);
+  --n-code-text: #eb5757;
+  --n-shadow:
+    rgba(15, 15, 15, 0.05) 0 0 0 1px, rgba(15, 15, 15, 0.1) 0 3px 6px,
+    rgba(15, 15, 15, 0.2) 0 9px 24px;
+  --n-shadow-sm: rgba(15, 15, 15, 0.06) 0 0 0 1px, rgba(15, 15, 15, 0.08) 0 2px 6px;
+
+  --n-callout-neutral: #f1f1ef;
+  --n-callout-blue: #e7f3f8;
+  --n-callout-purple: #f6f3f9;
+  --n-callout-green: #edf3ec;
+  --n-callout-amber: #fbf3db;
+
+  --n-scrollbar: rgba(55, 53, 47, 0.16);
+  --n-scrollbar-hover: rgba(55, 53, 47, 0.3);
+
+  --n-font-sans:
+    -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif;
+  --n-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  color-scheme: light;
+}
+
+html.dark {
+  --n-bg: #191919;
+  --n-canvas: #161618;
+  --n-sidebar: #202020;
+  --n-hover: #2c2c2c;
+  --n-hover-solid: #2c2c2c;
+  --n-active: #333333;
+  --n-border: #2f2f2f;
+  --n-text: #e6e6e4;
+  --n-text-muted: #9b9a97;
+  --n-text-faint: #6b6a67;
+  --n-accent: #529cca;
+  --n-code-bg: rgba(135, 131, 120, 0.15);
+  --n-code-text: #ff7369;
+  --n-shadow:
+    rgba(15, 15, 15, 0.2) 0 0 0 1px, rgba(15, 15, 15, 0.3) 0 3px 6px,
+    rgba(15, 15, 15, 0.45) 0 9px 24px;
+  --n-shadow-sm: rgba(15, 15, 15, 0.3) 0 0 0 1px, rgba(15, 15, 15, 0.35) 0 2px 6px;
+
+  --n-callout-neutral: #252525;
+  --n-callout-blue: #1c2930;
+  --n-callout-purple: #27222e;
+  --n-callout-green: #1e2921;
+  --n-callout-amber: #2e281d;
+
+  --n-scrollbar: rgba(255, 255, 255, 0.12);
+  --n-scrollbar-hover: rgba(255, 255, 255, 0.24);
+
+  color-scheme: dark;
+}
+
+html,
+body,
+#__nuxt {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--n-bg);
+  color: var(--n-text);
+  font-family: var(--n-font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(35, 131, 226, 0.22);
+}
+
+/* Thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--n-scrollbar) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--n-scrollbar);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--n-scrollbar-hover);
+  background-clip: content-box;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(35, 131, 226, 0.55);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+/* ---------- Reusable Notion primitives ---------- */
+.n-mono {
+  font-family: var(--n-font-mono);
+  font-feature-settings: 'calt' 0;
+}
+
+.n-code {
+  font-family: var(--n-font-mono);
+  font-size: 0.85em;
+  line-height: normal;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  background: var(--n-code-bg);
+  color: var(--n-code-text);
+  white-space: nowrap;
+}
+
+.n-code-neutral {
+  color: var(--n-text);
+}
+
+.n-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--n-text-muted);
+  background: var(--n-hover);
+  white-space: nowrap;
+}
+
+.n-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-family: var(--n-font-sans);
+  font-size: 11px;
+  color: var(--n-text-muted);
+  border: 1px solid var(--n-border);
+  background: var(--n-bg);
+  box-shadow: 0 1px 0 var(--n-border);
+}
+
+.n-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--n-text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+.n-btn:hover {
+  background: var(--n-hover);
+  color: var(--n-text);
+}
+.n-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.n-btn-icon {
+  width: 28px;
+  padding: 0;
+}
+
+.n-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  color: var(--n-text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: background 100ms ease;
+}
+.n-row:hover {
+  background: var(--n-hover);
+}
+.n-row[data-active='true'] {
+  background: var(--n-active);
+  color: var(--n-text);
+  font-weight: 500;
+}
+
+.n-callout {
+  display: flex;
+  gap: 10px;
+  padding: 14px 16px 14px 12px;
+  border-radius: 6px;
+}
+.n-callout[data-tone='neutral'] {
+  background: var(--n-callout-neutral);
+}
+.n-callout[data-tone='blue'] {
+  background: var(--n-callout-blue);
+}
+.n-callout[data-tone='purple'] {
+  background: var(--n-callout-purple);
+}
+.n-callout[data-tone='green'] {
+  background: var(--n-callout-green);
+}
+.n-callout[data-tone='amber'] {
+  background: var(--n-callout-amber);
+}
+
+.n-surface-float {
+  background: var(--n-bg);
+  border-radius: 10px;
+  box-shadow: var(--n-shadow);
+}
+
+/* Range input, Notion-ish */
+.n-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+}
+.n-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(
+    to right,
+    var(--n-text) 0,
+    var(--n-text) var(--n-range-fill, 0%),
+    var(--n-border) var(--n-range-fill, 0%)
+  );
+}
+.n-range::-moz-range-track {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--n-border);
+}
+.n-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--n-text);
+}
+.n-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--n-bg);
+  border: 1px solid var(--n-border);
+  box-shadow: 0 1px 3px rgba(15, 15, 15, 0.25);
+}
+.n-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--n-bg);
+  border: 1px solid var(--n-border);
+  box-shadow: 0 1px 3px rgba(15, 15, 15, 0.25);
+}
+
+/* ---------- Transitions ---------- */
+.n-fade-enter-active,
+.n-fade-leave-active {
+  transition: opacity 140ms ease;
+}
+.n-fade-enter-from,
+.n-fade-leave-to {
+  opacity: 0;
+}
+
+.n-pop-enter-active,
+.n-pop-leave-active {
+  transition:
+    opacity 140ms ease,
+    transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.n-pop-enter-from,
+.n-pop-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+}
+
+.n-slide-enter-active,
+.n-slide-leave-active {
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.n-slide-enter-from,
+.n-slide-leave-to {
+  transform: translateX(-100%);
+}
+
+.n-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms ease;
+}
+.n-collapse[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+.n-collapse > * {
+  overflow: hidden;
+  min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
