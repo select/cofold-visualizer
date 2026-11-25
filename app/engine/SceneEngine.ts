@@ -137,6 +137,7 @@ export class SceneEngine {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.08
+    this.controls.zoomToCursor = true
     this.controls.minDistance = 4
     this.controls.maxDistance = 140
     this.controls.maxPolarAngle = Math.PI * 0.85
@@ -162,6 +163,7 @@ export class SceneEngine {
     dom.addEventListener('pointerup', this.handlePointerUp)
     dom.addEventListener('pointerleave', this.handlePointerLeave)
     dom.addEventListener('dblclick', this.handleDoubleClick)
+    dom.addEventListener('wheel', this.handleWheel, { passive: true })
 
     this.lastTime = performance.now()
     this.animate()
@@ -1056,6 +1058,10 @@ export class SceneEngine {
     this.cameraFlying = false
   }
 
+  private readonly handleWheel = () => {
+    this.cameraFlying = false
+  }
+
   private readonly handlePointerMove = (e: PointerEvent) => {
     const rect = this.renderer.domElement.getBoundingClientRect()
     this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
@@ -1317,6 +1323,7 @@ export class SceneEngine {
     dom.removeEventListener('pointerup', this.handlePointerUp)
     dom.removeEventListener('pointerleave', this.handlePointerLeave)
     dom.removeEventListener('dblclick', this.handleDoubleClick)
+    dom.removeEventListener('wheel', this.handleWheel)
 
     this.controls.removeEventListener('start', this.handleControlsStart)
     this.controls.dispose()
