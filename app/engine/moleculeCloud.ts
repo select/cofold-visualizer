@@ -123,8 +123,6 @@ export class MoleculeCloud {
         this.bonds.push({ a: strandStartIdx + i - 1, b: strandStartIdx + i, isLigand: false })
       }
     }
-    // Connect helix end to beta strand start
-    this.bonds.push({ a: helixStartIdx + 21, b: strandStartIdx, isLigand: false })
 
     // 3. Bound small-molecule ligand (6-membered aromatic ring + 3 substituent atoms)
     const ligandCarbon = new THREE.Color('#10b981')

@@ -289,6 +289,71 @@ export function createEdgeLabelSprite(
   return sprite
 }
 
+export function createMiniLabelSprite(text: string, accentHex?: number): THREE.Sprite {
+  const height = 76
+  const font = '700 40px Inter, system-ui, -apple-system, sans-serif'
+  const measureCanvas = document.createElement('canvas')
+  const measureCtx = measureCanvas.getContext('2d')
+  let textW = text.length * 24
+  if (measureCtx) {
+    measureCtx.font = font
+    textW = measureCtx.measureText(text).width
+  }
+
+  const padX = 24
+  const width = Math.max(96, Math.ceil(textW) + padX * 2)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+
+  if (ctx) {
+    ctx.clearRect(0, 0, width, height)
+    const inset = 4
+    const rw = width - inset * 2
+    const rh = height - inset * 2
+    const radius = 14
+
+    ctx.beginPath()
+    ctx.roundRect(inset, inset, rw, rh, radius)
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
+    ctx.fill()
+
+    ctx.lineWidth = 2.5
+    if (accentHex !== undefined) {
+      const accent = `#${accentHex.toString(16).padStart(6, '0')}`
+      ctx.strokeStyle = accent
+    } else {
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)'
+    }
+    ctx.stroke()
+
+    ctx.fillStyle = '#ffffff'
+    ctx.font = font
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, width / 2, height / 2 + 1, rw - 16)
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 4
+  texture.needsUpdate = true
+
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    fog: false,
+    toneMapped: false,
+  })
+  const sprite = new THREE.Sprite(material)
+  sprite.renderOrder = 21
+  sprite.userData.aspect = width / height
+  return sprite
+}
+
 export function createAxisTagSprite(text: string, theme: 'light' | 'dark' | boolean): THREE.Sprite {
   const isDark = theme === 'dark' || theme === true
   const width = 560

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { DetailedBlockSpec, MatrixStyle, TensorBlock3D } from '~/types/architecture'
-import { createEdgeLabelSprite, createTensorMatrixTexture } from './textures'
+import { createMiniLabelSprite, createTensorMatrixTexture } from './textures'
 
 export interface DetailedBlockVisual {
   group: THREE.Group
@@ -9,6 +9,7 @@ export interface DetailedBlockVisual {
   miniLabels: THREE.Sprite[]
   update: (dt: number, isFlowPlaying: boolean) => void
   setLabelsVisible: (visible: boolean) => void
+  updateLabelScales: (camDist: number) => void
   setHighlighted: (selected: boolean, hovered: boolean, isFocused: boolean, isDark: boolean) => void
   dispose: () => void
 }
@@ -22,11 +23,23 @@ interface MiniFlowTrack {
   speed: number
 }
 
-function buildFlatRibbonGeometry(
+const ACT_GREEN = 0x22c55e
+const WEIGHT_INDIGO = 0x818cf8
+const COND_SKY = 0x38bdf8
+const PARAM_AMBER = 0xf59e0b
+const TEAL_OPM = 0x14b8a6
+
+function buildFlatRibbonArrowGeometry(
   curve: THREE.CatmullRomCurve3,
-  width: number,
-  segments = 18
+  shaftWidth: number,
+  headWidth: number,
+  headLength: number,
+  segments = 20
 ): THREE.BufferGeometry {
+  const totalLen = Math.max(0.05, curve.getLength())
+  const effectiveHeadLen = Math.min(headLength, totalLen * 0.44)
+  const shaftEndFrac = Math.max(0.12, (totalLen - effectiveHeadLen) / totalLen)
+
   const p0 = curve.getPointAt(0)
   const p1 = curve.getPointAt(1)
   const avgDir = p1.clone().sub(p0)
@@ -38,13 +51,7 @@ function buildFlatRibbonGeometry(
   const refNormal =
     Math.abs(avgDir.z) < 0.88 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0)
 
-  const positions: number[] = []
-  const indices: number[] = []
-  const half = width * 0.5
-
-  for (let i = 0; i <= segments; i++) {
-    const t = i / segments
-    const pt = curve.getPointAt(t)
+  const sideAt = (t: number): THREE.Vector3 => {
     const tan = curve.getTangentAt(t).normalize()
     const side = new THREE.Vector3().crossVectors(tan, refNormal)
     if (side.lengthSq() < 1e-6) {
@@ -52,8 +59,19 @@ function buildFlatRibbonGeometry(
     } else {
       side.normalize()
     }
-    const left = pt.clone().addScaledVector(side, half)
-    const right = pt.clone().addScaledVector(side, -half)
+    return side
+  }
+
+  const positions: number[] = []
+  const indices: number[] = []
+  const halfShaft = shaftWidth * 0.5
+
+  for (let i = 0; i <= segments; i++) {
+    const t = (i / segments) * shaftEndFrac
+    const pt = curve.getPointAt(t)
+    const side = sideAt(t)
+    const left = pt.clone().addScaledVector(side, halfShaft)
+    const right = pt.clone().addScaledVector(side, -halfShaft)
     positions.push(left.x, left.y, left.z, right.x, right.y, right.z)
 
     if (i < segments) {
@@ -61,6 +79,28 @@ function buildFlatRibbonGeometry(
       indices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
     }
   }
+
+  // Oriented flat triangular arrowhead seamlessly integrated at tip
+  const headBase = curve.getPointAt(shaftEndFrac)
+  const headSide = sideAt(shaftEndFrac)
+  const halfHead = headWidth * 0.5
+  const headLeft = headBase.clone().addScaledVector(headSide, halfHead)
+  const headRight = headBase.clone().addScaledVector(headSide, -halfHead)
+  const tip = curve.getPointAt(1)
+
+  const headBaseIdx = positions.length / 3
+  positions.push(
+    headLeft.x,
+    headLeft.y,
+    headLeft.z,
+    headRight.x,
+    headRight.y,
+    headRight.z,
+    tip.x,
+    tip.y,
+    tip.z
+  )
+  indices.push(headBaseIdx, headBaseIdx + 1, headBaseIdx + 2)
 
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
@@ -80,11 +120,10 @@ class DetailBuilderContext {
   private readonly materials: THREE.Material[] = []
   private readonly textures: THREE.Texture[] = []
   private readonly texCache = new Map<string, THREE.CanvasTexture>()
-  private readonly beadGeo = new THREE.SphereGeometry(0.036, 7, 7)
+  private readonly beadGeo = new THREE.SphereGeometry(0.03, 7, 7)
 
   constructor(
     private readonly block: TensorBlock3D,
-    private readonly spec: DetailedBlockSpec,
     private readonly isDark: boolean
   ) {
     this.geometries.push(this.beadGeo)
@@ -132,7 +171,7 @@ class DetailBuilderContext {
     const lineMat = new THREE.LineBasicMaterial({
       color: edgeColor,
       transparent: true,
-      opacity: this.isDark ? 0.58 : 0.52,
+      opacity: this.isDark ? 0.62 : 0.56,
     })
     this.materials.push(lineMat)
     this.edgeMaterials.push(lineMat)
@@ -171,7 +210,7 @@ class DetailBuilderContext {
     const lineMat = new THREE.LineBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: this.isDark ? 0.28 : 0.35,
+      opacity: this.isDark ? 0.32 : 0.38,
     })
     this.materials.push(lineMat)
     this.edgeMaterials.push(lineMat)
@@ -180,18 +219,23 @@ class DetailBuilderContext {
     return mesh
   }
 
-  public addMiniRibbon(
-    points: Array<[number, number, number]>,
-    width: number,
+  public addMiniArrow(
+    from: [number, number, number],
+    to: [number, number, number],
     colorHex: number,
+    width: number,
+    controlPoints?: Array<[number, number, number]>,
     beadCount = 1,
-    speed = 0.45
+    speed = 0.46
   ) {
-    const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(p[0], p[1], p[2])))
-    const geo = buildFlatRibbonGeometry(curve, width)
+    const pts = [from, ...(controlPoints ?? []), to].map(p => new THREE.Vector3(p[0], p[1], p[2]))
+    const curve = new THREE.CatmullRomCurve3(pts)
+    const headWidth = width * 2.05
+    const headLength = Math.min(width * 2.5, Math.max(0.06, curve.getLength() * 0.4))
+    const geo = buildFlatRibbonArrowGeometry(curve, width, headWidth, headLength)
     this.geometries.push(geo)
 
-    const baseOpacity = this.isDark ? 0.46 : 0.42
+    const baseOpacity = 0.48
     const ribbonMat = new THREE.MeshBasicMaterial({
       color: colorHex,
       transparent: true,
@@ -212,7 +256,7 @@ class DetailBuilderContext {
       const beadMat = new THREE.MeshBasicMaterial({
         color: colorHex,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.92,
       })
       this.materials.push(beadMat)
       const bead = new THREE.Mesh(this.beadGeo, beadMat)
@@ -229,21 +273,22 @@ class DetailBuilderContext {
   public addMiniLabel(
     text: string,
     pos: [number, number, number],
-    accentHex: number,
+    accentHex?: number,
     scaleMultiplier = 1
   ) {
-    const sprite = createEdgeLabelSprite(text, accentHex, this.isDark)
+    const sprite = createMiniLabelSprite(text, accentHex)
     if (sprite.material.map) {
       this.textures.push(sprite.material.map)
     }
     this.materials.push(sprite.material)
-    const sx = this.block.size[0]
-    const s = THREE.MathUtils.clamp(sx * 0.34, 0.85, 1.55) * scaleMultiplier
-    const aspect = 112 / 640
-    sprite.scale.set(s, s * aspect, 1)
+
+    const aspect = (sprite.userData.aspect as number) || 2.5
+    const baseH = 0.22 * scaleMultiplier
+    const baseW = baseH * aspect
+    sprite.userData.baseSize = [baseW, baseH]
+    sprite.scale.set(baseW, baseH, 1)
     sprite.position.set(pos[0], pos[1], pos[2])
-    sprite.renderOrder = 19
-    sprite.material.depthTest = false
+    sprite.renderOrder = 21
     sprite.visible = false
     this.group.add(sprite)
     this.miniLabels.push(sprite)
@@ -268,440 +313,1122 @@ function buildMultiheadAttn(
   const [sx, sy, sz] = block.size
   const accent = new THREE.Color(block.color).getHex()
   const isAda = spec.normType === 'AdaLN'
-  const normColor = isAda ? 0x38bdf8 : 0x64748b
-  const biasColor = 0x818cf8
-  const resColor = 0x22c55e
-
-  // Entry Norm + γ, β parameter bars
-  ctx.addSlab(
-    [-0.37 * sx, 0, 0],
-    [0.09 * sx, 0.72 * sy, 0.42 * sz],
-    'sequence',
-    block.color,
-    normColor
-  )
-  ctx.addBar([-0.29 * sx, 0, -0.07 * sz], [0.025 * sx, 0.66 * sy, 0.04 * sz], 0xf59e0b)
-  ctx.addBar([-0.29 * sx, 0, 0.07 * sz], [0.025 * sx, 0.66 * sy, 0.04 * sz], 0x38bdf8)
-  ctx.addMiniLabel(isAda ? 'AdaLN (γ,β)' : 'LN (γ,β)', [-0.35 * sx, 0.44 * sy, 0], normColor)
-
-  // 4 Fanned Head Columns along Z
-  const headCount = 4
-  const zSpan = Math.max(sz * 0.7, 0.65)
+  const normColor = isAda ? COND_SKY : 0x64748b
   const attnStyle: MatrixStyle = block.matrixStyle === 'local-window' ? 'local-window' : 'pair'
+  const isLocal = block.matrixStyle === 'local-window'
+  const arrowW = THREE.MathUtils.clamp(sz * 0.038, 0.036, 0.068)
 
-  for (let h = 0; h < headCount; h++) {
-    const z = (-0.5 + h / (headCount - 1)) * zSpan
-    const headD = Math.max(0.06, sz * 0.085)
+  // Use 1-tier horizontal layout for wide blocks (Pairformer s: 6.4×1.5),
+  // and 2-tier layout for compact blocks (AtomEnc 2.6×2.6, DiT 4.4×3.0) so no slab is a skinny pillar.
+  const useTwoTier = sx / sy < 2.2
 
-    // Q/K/V weights & vectors
+  if (!useTwoTier) {
+    // --- 1-TIER WIDE LAYOUT (Pairformer s) ---
+    const headCount = 3
+    const zSpan = Math.max(sz * 0.64, 0.72)
+    const headD = Math.max(0.065, sz * 0.095)
+
+    // Entry stub (-0.5*sx -> LN)
+    ctx.addMiniArrow([-0.5 * sx, 0, 0], [-0.435 * sx, 0, 0], ACT_GREEN, arrowW * 1.15, undefined, 1)
+
+    // LN + γ, β parameter bars pointing into LN
     ctx.addSlab(
-      [-0.14 * sx, 0.02 * sy, z],
-      [0.13 * sx, 0.44 * sy, headD],
+      [-0.405 * sx, 0, 0],
+      [0.055 * sx, 0.54 * sy, 0.34 * sz],
+      'sequence',
+      block.color,
+      normColor
+    )
+    ctx.addBar([-0.44 * sx, 0.32 * sy, -0.1 * sz], [0.018 * sx, 0.24 * sy, 0.06 * sz], PARAM_AMBER)
+    ctx.addBar([-0.44 * sx, -0.32 * sy, 0.1 * sz], [0.018 * sx, 0.24 * sy, 0.06 * sz], COND_SKY)
+    ctx.addMiniArrow(
+      [-0.43 * sx, 0.28 * sy, -0.08 * sz],
+      [-0.405 * sx, 0.22 * sy, -0.02 * sz],
+      WEIGHT_INDIGO,
+      arrowW * 0.75,
+      undefined,
+      0
+    )
+    ctx.addMiniArrow(
+      [-0.43 * sx, -0.28 * sy, 0.08 * sz],
+      [-0.405 * sx, -0.22 * sy, 0.02 * sz],
+      COND_SKY,
+      arrowW * 0.75,
+      undefined,
+      0
+    )
+    ctx.addMiniLabel(isAda ? 'AdaLN' : 'LN (γ,β)', [-0.41 * sx, 0.46 * sy, 0], normColor, 0.92)
+
+    // Fanned parallel heads: Q/K/V Weights -> Q/K/V Vectors -> Attn Scores -> Softmax -> V Out
+    const qkvY: [number, number, number] = [0.24 * sy, 0, -0.24 * sy]
+    for (let h = 0; h < headCount; h++) {
+      const z = (-0.5 + h / (headCount - 1)) * zSpan
+
+      for (let r = 0; r < 3; r++) {
+        const y = qkvY[r]!
+        // Q/K/V Weight matrix (C × d_head)
+        ctx.addSlab(
+          [-0.29 * sx, y, z],
+          [0.065 * sx, 0.15 * sy, headD],
+          'transformer',
+          '#6366f1',
+          WEIGHT_INDIGO
+        )
+        // Q/K/V Vector (N × d_head)
+        ctx.addSlab(
+          [-0.175 * sx, y, z],
+          [0.05 * sx, 0.15 * sy, headD],
+          'sequence',
+          block.color,
+          accent
+        )
+        // Indigo weight-to-vector arrow
+        ctx.addMiniArrow(
+          [-0.255 * sx, y, z],
+          [-0.205 * sx, y, z],
+          WEIGHT_INDIGO,
+          arrowW * 0.75,
+          undefined,
+          0
+        )
+        // Green activation from LN -> Q/K/V Vectors
+        ctx.addMiniArrow(
+          [-0.375 * sx, y * 0.45, z * 0.3],
+          [-0.205 * sx, y, z],
+          ACT_GREEN,
+          arrowW * 0.7,
+          [[-0.29 * sx, y * 0.85, z * 0.7]],
+          h === 1 && r === 1 ? 1 : 0
+        )
+      }
+
+      // Attn Scores (QK^T + b_ij) — true square N×N matrix
+      ctx.addSlab(
+        [-0.055 * sx, 0.1 * sy, z],
+        [0.075 * sx, 0.34 * sy, headD],
+        attnStyle,
+        '#6366f1',
+        WEIGHT_INDIGO
+      )
+      // Q & K -> Attn Scores
+      ctx.addMiniArrow(
+        [-0.148 * sx, qkvY[0], z],
+        [-0.095 * sx, 0.16 * sy, z],
+        ACT_GREEN,
+        arrowW * 0.75,
+        undefined,
+        h === 0 ? 1 : 0
+      )
+      ctx.addMiniArrow(
+        [-0.148 * sx, qkvY[1], z],
+        [-0.095 * sx, 0.06 * sy, z],
+        ACT_GREEN,
+        arrowW * 0.75,
+        undefined,
+        0
+      )
+
+      // Pair Bias (b_ij) -> Attn Scores (indigo)
+      ctx.addMiniArrow(
+        [-0.055 * sx, -0.26 * sy, z * 0.4],
+        [-0.055 * sx, -0.08 * sy, z],
+        WEIGHT_INDIGO,
+        arrowW * 0.75,
+        undefined,
+        h === 1 ? 1 : 0
+      )
+
+      // Explicit Softmax slab
+      ctx.addSlab(
+        [0.055 * sx, 0.1 * sy, z],
+        [0.06 * sx, 0.3 * sy, headD],
+        'heatmap',
+        '#f59e0b',
+        PARAM_AMBER
+      )
+      ctx.addMiniArrow(
+        [-0.015 * sx, 0.1 * sy, z],
+        [0.022 * sx, 0.1 * sy, z],
+        ACT_GREEN,
+        arrowW * 0.8,
+        undefined,
+        h === 1 ? 1 : 0
+      )
+
+      // V Out
+      ctx.addSlab(
+        [0.155 * sx, 0, z],
+        [0.055 * sx, 0.34 * sy, headD],
+        'sequence',
+        block.color,
+        accent
+      )
+      // Two clean arrows into V Out: Softmax -> V Out, and V Vectors -> V Out
+      ctx.addMiniArrow(
+        [0.088 * sx, 0.08 * sy, z],
+        [0.125 * sx, 0.04 * sy, z],
+        ACT_GREEN,
+        arrowW * 0.8,
+        undefined,
+        h === 0 ? 1 : 0
+      )
+      ctx.addMiniArrow(
+        [-0.148 * sx, qkvY[2], z],
+        [0.125 * sx, -0.06 * sy, z],
+        ACT_GREEN,
+        arrowW * 0.72,
+        [[0.0, -0.22 * sy, z]],
+        h === 2 ? 1 : 0
+      )
+
+      // V Out -> Proj Weights
+      ctx.addMiniArrow(
+        [0.185 * sx, 0, z],
+        [0.22 * sx, 0, z * 0.35],
+        ACT_GREEN,
+        arrowW * 0.75,
+        undefined,
+        0
+      )
+    }
+
+    // Dedicated Pair Bias (b_ij) slab
+    ctx.addSlab(
+      [-0.055 * sx, -0.34 * sy, 0],
+      [0.075 * sx, 0.18 * sy, 0.38 * sz],
+      'pair',
+      '#818cf8',
+      WEIGHT_INDIGO
+    )
+
+    ctx.addMiniLabel('Q/K/V W', [-0.29 * sx, 0.44 * sy, zSpan * 0.25], WEIGHT_INDIGO, 0.88)
+    ctx.addMiniLabel('Q/K/V', [-0.175 * sx, 0.44 * sy, zSpan * 0.25], accent, 0.88)
+    ctx.addMiniLabel('Attn Scores', [-0.055 * sx, 0.42 * sy, zSpan * 0.25], WEIGHT_INDIGO, 0.88)
+    ctx.addMiniLabel('Pair Bias b_ij', [-0.055 * sx, -0.52 * sy, 0], WEIGHT_INDIGO, 0.86)
+    ctx.addMiniLabel('Softmax', [0.055 * sx, 0.4 * sy, zSpan * 0.25], PARAM_AMBER, 0.88)
+    ctx.addMiniLabel('V Out', [0.155 * sx, -0.34 * sy, zSpan * 0.25], accent, 0.88)
+
+    // Proj Weights (C×C) -> Attn Out
+    ctx.addSlab(
+      [0.24 * sx, 0, 0],
+      [0.05 * sx, 0.48 * sy, 0.32 * sz],
+      'transformer',
+      '#6366f1',
+      WEIGHT_INDIGO
+    )
+    ctx.addSlab(
+      [0.31 * sx, 0, 0],
+      [0.045 * sx, 0.48 * sy, 0.32 * sz],
       'sequence',
       block.color,
       accent
     )
-    // Attn (QK^T + b_ij)
-    ctx.addSlab(
-      [0.04 * sx, 0.02 * sy, z],
-      [0.12 * sx, 0.4 * sy, headD],
-      attnStyle,
-      '#6366f1',
-      biasColor
+    ctx.addMiniArrow(
+      [0.268 * sx, 0, 0],
+      [0.286 * sx, 0, 0],
+      WEIGHT_INDIGO,
+      arrowW * 0.9,
+      undefined,
+      1
     )
-    // V Out
+    ctx.addMiniLabel('Proj (C×C)', [0.24 * sx, 0.38 * sy, 0], WEIGHT_INDIGO, 0.86)
+    ctx.addMiniLabel('Attn Out', [0.31 * sx, -0.38 * sy, 0], accent, 0.86)
+
+    // Residual Skip 1: Entry -> Attn Out
+    ctx.addMiniArrow(
+      [-0.44 * sx, 0.32 * sy, 0],
+      [0.31 * sx, 0.28 * sy, 0],
+      ACT_GREEN,
+      arrowW,
+      [[-0.06 * sx, 0.56 * sy, 0]],
+      2,
+      0.38
+    )
+
+    // SwiGLU Transition: LN -> 4× W_gate/W_up (4C) -> SiLU ⊙ -> W_down (C)
+    ctx.addMiniArrow([0.335 * sx, 0, 0], [0.355 * sx, 0, 0], ACT_GREEN, arrowW * 0.85, undefined, 0)
     ctx.addSlab(
-      [0.2 * sx, 0.02 * sy, z],
-      [0.08 * sx, 0.38 * sy, headD],
+      [0.368 * sx, 0, 0],
+      [0.025 * sx, 0.42 * sy, 0.3 * sz],
+      'sequence',
+      block.color,
+      normColor
+    )
+    ctx.addMiniArrow([0.382 * sx, 0, 0], [0.398 * sx, 0, 0], ACT_GREEN, arrowW * 0.85, undefined, 0)
+    // 4× wider W_gate / W_up (4C)
+    ctx.addSlab(
+      [0.42 * sx, 0, 0],
+      [0.042 * sx, 0.68 * sy, 0.82 * sz],
       'transformer',
       block.color,
       accent
     )
-
-    // Flow from Norm -> QKV -> Attn -> V Out -> Exit Proj
-    ctx.addMiniRibbon(
-      [
-        [-0.27 * sx, 0.02 * sy, z * 0.35],
-        [-0.2 * sx, 0.02 * sy, z * 0.75],
-        [-0.14 * sx, 0.02 * sy, z],
-      ],
-      Math.max(0.04, sz * 0.045),
-      accent,
-      1,
-      0.52
+    ctx.addBar([0.452 * sx, 0, 0], [0.018 * sx, 0.58 * sy, 0.52 * sz], PARAM_AMBER)
+    ctx.addMiniArrow([0.442 * sx, 0, 0], [0.468 * sx, 0, 0], ACT_GREEN, arrowW * 0.85, undefined, 0)
+    ctx.addSlab(
+      [0.48 * sx, 0, 0],
+      [0.026 * sx, 0.42 * sy, 0.3 * sz],
+      'sequence',
+      block.color,
+      accent
     )
-    ctx.addMiniRibbon(
-      [
-        [0.24 * sx, 0.02 * sy, z],
-        [0.3 * sx, 0.02 * sy, z * 0.45],
-        [0.34 * sx, 0, 0],
-      ],
-      Math.max(0.04, sz * 0.045),
-      accent,
+    // Residual Skip 2: Attn Out -> W_down
+    ctx.addMiniArrow(
+      [0.31 * sx, 0.28 * sy, 0],
+      [0.48 * sx, 0.25 * sy, 0],
+      ACT_GREEN,
+      arrowW * 0.9,
+      [[0.4 * sx, 0.5 * sy, 0]],
       1,
-      0.52
-    )
-    // Pair Bias mini-ribbon feeding each Attn matrix from bottom-front
-    ctx.addMiniRibbon(
-      [
-        [-0.08 * sx, -0.34 * sy, zSpan * 0.45],
-        [-0.01 * sx, -0.24 * sy, z * 0.85],
-        [0.04 * sx, -0.18 * sy, z],
-      ],
-      Math.max(0.035, sz * 0.038),
-      biasColor,
-      h === 0 || h === headCount - 1 ? 1 : 0,
       0.42
     )
+    // Exit stub
+    ctx.addMiniArrow([0.494 * sx, 0, 0], [0.5 * sx, 0, 0], ACT_GREEN, arrowW * 1.1, undefined, 1)
+
+    ctx.addMiniLabel('SwiGLU 4× (4C)', [0.42 * sx, 0.48 * sy, 0], accent, 0.88)
+    ctx.addMiniLabel('W_down', [0.48 * sx, -0.36 * sy, 0], accent, 0.84)
+  } else {
+    // --- 2-TIER LAYOUT (AtomEnc 3×, DiT 24×) ---
+    const t1Y = 0.21 * sy
+    const t2Y = -0.22 * sy
+    const headCount = 3
+    const zSpan = Math.max(sz * 0.66, 0.72)
+    const headD = Math.max(0.06, sz * 0.085)
+
+    // Entry stub (-0.5*sx -> LN on Tier 1)
+    ctx.addMiniArrow(
+      [-0.5 * sx, t1Y, 0],
+      [-0.43 * sx, t1Y, 0],
+      ACT_GREEN,
+      arrowW * 1.1,
+      undefined,
+      1
+    )
+
+    // Tier 1: LN / AdaLN + γ, β bars
+    ctx.addSlab(
+      [-0.39 * sx, t1Y, 0],
+      [0.075 * sx, 0.32 * sy, 0.34 * sz],
+      'sequence',
+      block.color,
+      normColor
+    )
+    ctx.addBar(
+      [-0.44 * sx, t1Y + 0.1 * sy, -0.1 * sz],
+      [0.024 * sx, 0.16 * sy, 0.05 * sz],
+      PARAM_AMBER
+    )
+    ctx.addBar([-0.44 * sx, t1Y - 0.1 * sy, 0.1 * sz], [0.024 * sx, 0.16 * sy, 0.05 * sz], COND_SKY)
+    ctx.addMiniArrow(
+      [-0.425 * sx, t1Y + 0.09 * sy, -0.08 * sz],
+      [-0.39 * sx, t1Y + 0.08 * sy, -0.02 * sz],
+      WEIGHT_INDIGO,
+      arrowW * 0.75,
+      undefined,
+      0
+    )
+    ctx.addMiniArrow(
+      [-0.425 * sx, t1Y - 0.09 * sy, 0.08 * sz],
+      [-0.39 * sx, t1Y - 0.08 * sy, 0.02 * sz],
+      COND_SKY,
+      arrowW * 0.75,
+      undefined,
+      0
+    )
+    ctx.addMiniLabel(
+      isAda ? 'AdaLN (γ,β)' : 'LN (γ,β)',
+      [-0.39 * sx, t1Y + 0.24 * sy, 0],
+      normColor,
+      0.88
+    )
+
+    // Fanned heads on Tier 1
+    for (let h = 0; h < headCount; h++) {
+      const z = (-0.5 + h / (headCount - 1)) * zSpan
+
+      // Q/K/V Weights
+      ctx.addSlab(
+        [-0.25 * sx, t1Y, z],
+        [0.08 * sx, 0.28 * sy, headD],
+        'transformer',
+        '#6366f1',
+        WEIGHT_INDIGO
+      )
+      // Q/K/V Vectors
+      ctx.addSlab(
+        [-0.12 * sx, t1Y, z],
+        [0.075 * sx, 0.26 * sy, headD],
+        'sequence',
+        block.color,
+        accent
+      )
+      ctx.addMiniArrow(
+        [-0.205 * sx, t1Y, z],
+        [-0.16 * sx, t1Y, z],
+        WEIGHT_INDIGO,
+        arrowW * 0.75,
+        undefined,
+        0
+      )
+      ctx.addMiniArrow(
+        [-0.35 * sx, t1Y, z * 0.3],
+        [-0.16 * sx, t1Y + 0.08 * sy, z],
+        ACT_GREEN,
+        arrowW * 0.7,
+        [[-0.25 * sx, t1Y + 0.12 * sy, z * 0.7]],
+        h === 1 ? 1 : 0
+      )
+
+      // Attn Scores (wide 32×128 for Local Window, square for DiT)
+      ctx.addSlab(
+        [0.03 * sx, t1Y, z],
+        [isLocal ? 0.12 * sx : 0.095 * sx, isLocal ? 0.2 * sy : 0.26 * sy, headD],
+        attnStyle,
+        '#6366f1',
+        WEIGHT_INDIGO
+      )
+      ctx.addMiniArrow(
+        [-0.08 * sx, t1Y + 0.04 * sy, z],
+        [isLocal ? -0.035 * sx : -0.02 * sx, t1Y + 0.04 * sy, z],
+        ACT_GREEN,
+        arrowW * 0.75,
+        undefined,
+        h === 0 ? 1 : 0
+      )
+      // Pair Bias -> Attn Scores
+      ctx.addMiniArrow(
+        [0.03 * sx, t1Y - 0.16 * sy, z * 0.4],
+        [0.03 * sx, t1Y - 0.1 * sy, z],
+        WEIGHT_INDIGO,
+        arrowW * 0.7,
+        undefined,
+        0
+      )
+
+      // Softmax
+      ctx.addSlab(
+        [0.16 * sx, t1Y, z],
+        [0.075 * sx, 0.24 * sy, headD],
+        'heatmap',
+        '#f59e0b',
+        PARAM_AMBER
+      )
+      ctx.addMiniArrow(
+        [isLocal ? 0.095 * sx : 0.08 * sx, t1Y, z],
+        [0.12 * sx, t1Y, z],
+        ACT_GREEN,
+        arrowW * 0.75,
+        undefined,
+        h === 1 ? 1 : 0
+      )
+
+      // V Out
+      ctx.addSlab(
+        [0.27 * sx, t1Y, z],
+        [0.07 * sx, 0.26 * sy, headD],
+        'sequence',
+        block.color,
+        accent
+      )
+      ctx.addMiniArrow(
+        [0.2 * sx, t1Y + 0.03 * sy, z],
+        [0.233 * sx, t1Y + 0.03 * sy, z],
+        ACT_GREEN,
+        arrowW * 0.75,
+        undefined,
+        h === 0 ? 1 : 0
+      )
+      // V Vectors -> V Out bypass
+      ctx.addMiniArrow(
+        [-0.08 * sx, t1Y - 0.09 * sy, z],
+        [0.233 * sx, t1Y - 0.07 * sy, z],
+        ACT_GREEN,
+        arrowW * 0.68,
+        [[0.09 * sx, t1Y - 0.15 * sy, z]],
+        h === 2 ? 1 : 0
+      )
+      ctx.addMiniArrow(
+        [0.308 * sx, t1Y, z],
+        [0.35 * sx, t1Y, z * 0.3],
+        ACT_GREEN,
+        arrowW * 0.72,
+        undefined,
+        0
+      )
+    }
+
+    // Dedicated Pair Bias (b_ij) slab below Attn Scores
+    ctx.addSlab(
+      [0.03 * sx, t1Y - 0.19 * sy, 0],
+      [0.09 * sx, 0.09 * sy, 0.34 * sz],
+      'pair',
+      '#818cf8',
+      WEIGHT_INDIGO
+    )
+
+    // Proj Weights -> Attn Out on Tier 1
+    ctx.addSlab(
+      [0.37 * sx, t1Y, 0],
+      [0.065 * sx, 0.3 * sy, 0.32 * sz],
+      'transformer',
+      '#6366f1',
+      WEIGHT_INDIGO
+    )
+    ctx.addSlab(
+      [0.44 * sx, t1Y, 0],
+      [0.055 * sx, 0.3 * sy, 0.32 * sz],
+      'sequence',
+      block.color,
+      accent
+    )
+    ctx.addMiniArrow(
+      [0.405 * sx, t1Y, 0],
+      [0.41 * sx, t1Y, 0],
+      WEIGHT_INDIGO,
+      arrowW * 0.85,
+      undefined,
+      0
+    )
+
+    // Residual Skip 1 over Tier 1
+    ctx.addMiniArrow(
+      [-0.43 * sx, t1Y + 0.16 * sy, 0],
+      [0.44 * sx, t1Y + 0.16 * sy, 0],
+      ACT_GREEN,
+      arrowW,
+      [[0, t1Y + 0.28 * sy, 0]],
+      2,
+      0.38
+    )
+
+    ctx.addMiniLabel('Q/K/V W', [-0.25 * sx, t1Y + 0.22 * sy, zSpan * 0.25], WEIGHT_INDIGO, 0.85)
+    ctx.addMiniLabel('Q/K/V', [-0.12 * sx, t1Y + 0.22 * sy, zSpan * 0.25], accent, 0.85)
+    ctx.addMiniLabel(
+      isLocal ? 'Attn (32×128)' : 'Attn + b_ij',
+      [0.03 * sx, t1Y + 0.22 * sy, zSpan * 0.25],
+      WEIGHT_INDIGO,
+      0.85
+    )
+    ctx.addMiniLabel('Pair Bias b_ij', [0.03 * sx, t1Y - 0.27 * sy, 0], WEIGHT_INDIGO, 0.82)
+    ctx.addMiniLabel('Softmax', [0.16 * sx, t1Y + 0.2 * sy, zSpan * 0.25], PARAM_AMBER, 0.85)
+    ctx.addMiniLabel('V Out', [0.27 * sx, t1Y - 0.22 * sy, zSpan * 0.25], accent, 0.85)
+    ctx.addMiniLabel('Proj + Out', [0.4 * sx, t1Y + 0.22 * sy, 0], accent, 0.85)
+
+    // Hop from Tier 1 Attn Out -> Tier 2 SwiGLU LN
+    ctx.addMiniArrow(
+      [0.44 * sx, t1Y - 0.15 * sy, 0],
+      [-0.35 * sx, t2Y + 0.12 * sy, 0],
+      ACT_GREEN,
+      arrowW,
+      [
+        [0.18 * sx, 0.02 * sy, 0.22 * sz],
+        [-0.18 * sx, -0.02 * sy, 0.22 * sz],
+      ],
+      2,
+      0.42
+    )
+
+    // Tier 2: SwiGLU Transition: LN -> 4× W_gate/W_up (4C) -> SiLU ⊙ -> W_down (C) -> Exit stub
+    ctx.addSlab(
+      [-0.35 * sx, t2Y, 0],
+      [0.075 * sx, 0.26 * sy, 0.3 * sz],
+      'sequence',
+      block.color,
+      normColor
+    )
+    ctx.addMiniArrow([-0.31 * sx, t2Y, 0], [-0.19 * sx, t2Y, 0], ACT_GREEN, arrowW, undefined, 1)
+
+    // 4× wider W_gate / W_up (4C)
+    ctx.addSlab(
+      [-0.08 * sx, t2Y, 0],
+      [0.16 * sx, 0.34 * sy, 0.78 * sz],
+      'transformer',
+      block.color,
+      accent
+    )
+    ctx.addBar([0.08 * sx, t2Y, 0], [0.04 * sx, 0.28 * sy, 0.52 * sz], PARAM_AMBER)
+    ctx.addMiniArrow([0.01 * sx, t2Y, 0], [0.055 * sx, t2Y, 0], ACT_GREEN, arrowW, undefined, 0)
+    ctx.addMiniArrow([0.105 * sx, t2Y, 0], [0.21 * sx, t2Y, 0], ACT_GREEN, arrowW, undefined, 1)
+
+    ctx.addSlab(
+      [0.27 * sx, t2Y, 0],
+      [0.09 * sx, 0.26 * sy, 0.3 * sz],
+      'sequence',
+      block.color,
+      accent
+    )
+
+    // Residual Skip 2 over SwiGLU
+    ctx.addMiniArrow(
+      [-0.35 * sx, t2Y - 0.14 * sy, 0],
+      [0.27 * sx, t2Y - 0.14 * sy, 0],
+      ACT_GREEN,
+      arrowW,
+      [[-0.04 * sx, t2Y - 0.25 * sy, 0]],
+      1,
+      0.42
+    )
+
+    // Exit stub (+0.5*sx)
+    ctx.addMiniArrow([0.32 * sx, t2Y, 0], [0.5 * sx, t2Y, 0], ACT_GREEN, arrowW * 1.1, undefined, 1)
+
+    ctx.addMiniLabel('SwiGLU LN', [-0.35 * sx, t2Y + 0.2 * sy, 0], normColor, 0.84)
+    ctx.addMiniLabel('W_gate/up (4C)', [-0.08 * sx, t2Y + 0.23 * sy, 0], accent, 0.88)
+    ctx.addMiniLabel('SiLU ⊙', [0.08 * sx, t2Y - 0.21 * sy, 0], PARAM_AMBER, 0.84)
+    ctx.addMiniLabel('W_down (C)', [0.27 * sx, t2Y + 0.2 * sy, 0], accent, 0.86)
   }
-
-  ctx.addMiniLabel(`${spec.heads ?? 4}× Q/K/V`, [-0.14 * sx, 0.38 * sy, zSpan * 0.35], accent)
-  ctx.addMiniLabel('Attn + b_ij', [0.04 * sx, -0.34 * sy, zSpan * 0.4], biasColor)
-
-  // Exit Proj + SwiGLU slab
-  ctx.addSlab(
-    [0.37 * sx, 0, 0],
-    [0.11 * sx, 0.72 * sy, 0.46 * sz],
-    'transformer',
-    block.color,
-    accent
-  )
-  ctx.addMiniLabel('Proj + SwiGLU', [0.36 * sx, 0.44 * sy, 0], accent)
-
-  // Residual arc over the top
-  ctx.addMiniRibbon(
-    [
-      [-0.37 * sx, 0.38 * sy, 0],
-      [0, 0.47 * sy, 0],
-      [0.37 * sx, 0.38 * sy, 0],
-    ],
-    Math.max(0.045, sz * 0.05),
-    resColor,
-    2,
-    0.38
-  )
 }
 
 function buildPairStack(ctx: DetailBuilderContext, block: TensorBlock3D, spec: DetailedBlockSpec) {
   const [sx, sy, sz] = block.size
   const accent = new THREE.Color(block.color).getHex()
   const triColor = 0xa855f7
-  const biasColor = 0x818cf8
-  const zSpan = Math.max(sz * 0.68, 0.6)
+  const zSpan = Math.max(sz * 0.66, 0.62)
+  const headD = Math.max(0.055, sz * 0.08)
+  const arrowW = THREE.MathUtils.clamp(sz * 0.04, 0.036, 0.068)
 
-  // TriMul Outgoing (dual gated projection slabs + multiply bar)
+  // Entry stub (-0.5*sx -> TriMul Out)
+  ctx.addMiniArrow(
+    [-0.5 * sx, 0, 0],
+    [-0.43 * sx, 0.15 * sy, -0.1 * sz],
+    ACT_GREEN,
+    arrowW,
+    undefined,
+    1
+  )
+  ctx.addMiniArrow(
+    [-0.5 * sx, 0, 0],
+    [-0.43 * sx, -0.15 * sy, 0.1 * sz],
+    ACT_GREEN,
+    arrowW,
+    undefined,
+    0
+  )
+
+  // 1. TriMul Out: 2 symmetric gated projection slabs (a_ik, b_jk) -> explicit ⊙ Out bar
   ctx.addSlab(
-    [-0.38 * sx, 0.14 * sy, -0.12 * sz],
-    [0.1 * sx, 0.34 * sy, 0.24 * sz],
+    [-0.38 * sx, 0.17 * sy, -0.12 * sz],
+    [0.085 * sx, 0.26 * sy, 0.24 * sz],
     'pair',
     block.color,
     triColor
   )
   ctx.addSlab(
-    [-0.38 * sx, -0.14 * sy, 0.12 * sz],
-    [0.1 * sx, 0.34 * sy, 0.24 * sz],
+    [-0.38 * sx, -0.17 * sy, 0.12 * sz],
+    [0.085 * sx, 0.26 * sy, 0.24 * sz],
     'pair',
     block.color,
     triColor
   )
-  ctx.addBar([-0.28 * sx, 0, 0], [0.035 * sx, 0.56 * sy, 0.14 * sz], triColor)
-  ctx.addMiniLabel('TriMul Out', [-0.34 * sx, 0.42 * sy, 0], triColor)
+  ctx.addBar([-0.28 * sx, 0, 0], [0.032 * sx, 0.48 * sy, 0.16 * sz], triColor)
+  ctx.addMiniArrow(
+    [-0.335 * sx, 0.16 * sy, -0.1 * sz],
+    [-0.295 * sx, 0.06 * sy, 0],
+    ACT_GREEN,
+    arrowW * 0.85,
+    undefined,
+    1
+  )
+  ctx.addMiniArrow(
+    [-0.335 * sx, -0.16 * sy, 0.1 * sz],
+    [-0.295 * sx, -0.06 * sy, 0],
+    ACT_GREEN,
+    arrowW * 0.85,
+    undefined,
+    1
+  )
+  ctx.addMiniLabel('TriMul Out (a_ik⊙b_jk)', [-0.35 * sx, 0.4 * sy, 0], triColor, 0.88)
 
-  // TriMul Incoming
-  ctx.addSlab([-0.15 * sx, 0, 0], [0.11 * sx, 0.62 * sy, 0.4 * sz], 'pair', block.color, accent)
-  ctx.addMiniLabel('TriMul In', [-0.15 * sx, -0.4 * sy, 0], accent)
+  // 2. TriMul In: structurally symmetric 2 gated slabs (a_ki, b_kj) -> explicit ⊙ In bar
+  ctx.addMiniArrow(
+    [-0.262 * sx, 0, 0],
+    [-0.21 * sx, 0.15 * sy, -0.1 * sz],
+    ACT_GREEN,
+    arrowW * 0.85,
+    undefined,
+    1
+  )
+  ctx.addMiniArrow(
+    [-0.262 * sx, 0, 0],
+    [-0.21 * sx, -0.15 * sy, 0.1 * sz],
+    ACT_GREEN,
+    arrowW * 0.85,
+    undefined,
+    0
+  )
+  ctx.addSlab(
+    [-0.165 * sx, 0.17 * sy, -0.12 * sz],
+    [0.085 * sx, 0.26 * sy, 0.24 * sz],
+    'pair',
+    block.color,
+    accent
+  )
+  ctx.addSlab(
+    [-0.165 * sx, -0.17 * sy, 0.12 * sz],
+    [0.085 * sx, 0.26 * sy, 0.24 * sz],
+    'pair',
+    block.color,
+    accent
+  )
+  ctx.addBar([-0.065 * sx, 0, 0], [0.032 * sx, 0.48 * sy, 0.16 * sz], accent)
+  ctx.addMiniArrow(
+    [-0.12 * sx, 0.16 * sy, -0.1 * sz],
+    [-0.08 * sx, 0.06 * sy, 0],
+    ACT_GREEN,
+    arrowW * 0.85,
+    undefined,
+    1
+  )
+  ctx.addMiniArrow(
+    [-0.12 * sx, -0.16 * sy, 0.1 * sz],
+    [-0.08 * sx, -0.06 * sy, 0],
+    ACT_GREEN,
+    arrowW * 0.85,
+    undefined,
+    1
+  )
+  ctx.addMiniLabel('TriMul In (a_ki⊙b_kj)', [-0.14 * sx, -0.4 * sy, 0], accent, 0.88)
 
-  // 4 Fanned TriAttn Start / End slabs along Z
+  // 3. Separated 4× TriAttn Start (row) -> 4× TriAttn End (col)
   const heads = 4
   for (let h = 0; h < heads; h++) {
     const z = (-0.5 + h / (heads - 1)) * zSpan
+
+    // TriAttn Start (row)
+    ctx.addSlab([0.07 * sx, 0, z], [0.095 * sx, 0.44 * sy, headD], 'pair', '#6366f1', WEIGHT_INDIGO)
+    ctx.addMiniArrow(
+      [-0.048 * sx, 0, z * 0.25],
+      [0.02 * sx, 0, z],
+      ACT_GREEN,
+      arrowW * 0.75,
+      undefined,
+      h % 2 === 0 ? 1 : 0
+    )
+
+    // TriAttn End (col)
     ctx.addSlab(
-      [0.11 * sx, 0, z],
-      [0.15 * sx, 0.5 * sy, Math.max(0.06, sz * 0.09)],
+      [0.215 * sx, 0, z],
+      [0.095 * sx, 0.44 * sy, headD],
       'pair',
-      '#6366f1',
-      biasColor
+      '#8b5cf6',
+      WEIGHT_INDIGO
     )
-    ctx.addMiniRibbon(
-      [
-        [-0.08 * sx, 0, z * 0.35],
-        [0.02 * sx, 0, z],
-      ],
-      Math.max(0.035, sz * 0.042),
-      biasColor,
-      h % 2 === 0 ? 1 : 0,
-      0.48
+    ctx.addMiniArrow(
+      [0.12 * sx, 0, z],
+      [0.165 * sx, 0, z],
+      ACT_GREEN,
+      arrowW * 0.75,
+      undefined,
+      h % 2 === 1 ? 1 : 0
     )
-    ctx.addMiniRibbon(
-      [
-        [0.19 * sx, 0, z],
-        [0.3 * sx, 0, z * 0.3],
-      ],
-      Math.max(0.035, sz * 0.042),
-      accent,
-      h % 2 === 1 ? 1 : 0,
-      0.48
+
+    // TriAttn End -> SwiGLU
+    ctx.addMiniArrow(
+      [0.265 * sx, 0, z],
+      [0.315 * sx, 0, z * 0.3],
+      ACT_GREEN,
+      arrowW * 0.75,
+      undefined,
+      0
     )
   }
-  ctx.addMiniLabel(`${spec.heads ?? 4}× TriAttn`, [0.11 * sx, 0.4 * sy, zSpan * 0.32], biasColor)
+  ctx.addMiniLabel(
+    `${spec.heads ?? 4}× TriAttn Start`,
+    [0.07 * sx, 0.38 * sy, zSpan * 0.25],
+    WEIGHT_INDIGO,
+    0.86
+  )
+  ctx.addMiniLabel(
+    `${spec.heads ?? 4}× TriAttn End`,
+    [0.215 * sx, -0.38 * sy, zSpan * 0.25],
+    WEIGHT_INDIGO,
+    0.86
+  )
 
-  // SwiGLU exit slab
+  // 4. SwiGLU (4×: 128 -> 512 -> 128)
   ctx.addSlab(
-    [0.37 * sx, 0, 0],
-    [0.11 * sx, 0.68 * sy, 0.42 * sz],
+    [0.36 * sx, 0, 0],
+    [0.085 * sx, 0.68 * sy, 0.78 * sz],
     'transformer',
     block.color,
     accent
   )
-  ctx.addMiniLabel('SwiGLU', [0.36 * sx, -0.42 * sy, 0], accent)
-
-  // Main spine ribbon
-  ctx.addMiniRibbon(
-    [
-      [-0.28 * sx, 0, 0],
-      [-0.2 * sx, 0, 0],
-    ],
-    Math.max(0.05, sz * 0.06),
-    triColor,
-    1,
-    0.5
+  ctx.addSlab(
+    [0.445 * sx, 0, 0],
+    [0.055 * sx, 0.46 * sy, 0.34 * sz],
+    'sequence',
+    block.color,
+    accent
   )
+  ctx.addMiniArrow([0.405 * sx, 0, 0], [0.415 * sx, 0, 0], ACT_GREEN, arrowW * 0.9, undefined, 0)
+  // Exit stub (+0.5*sx)
+  ctx.addMiniArrow([0.475 * sx, 0, 0], [0.5 * sx, 0, 0], ACT_GREEN, arrowW * 1.1, undefined, 1)
+  ctx.addMiniLabel('SwiGLU (4×)', [0.38 * sx, 0.44 * sy, 0], accent, 0.88)
 }
 
 function buildMsaBlock(ctx: DetailBuilderContext, block: TensorBlock3D, spec: DetailedBlockSpec) {
   const [sx, sy, sz] = block.size
   const accent = new THREE.Color(block.color).getHex()
-  const teal = 0x14b8a6
-  const green = 0x22c55e
-  const zSpan = Math.max(sz * 0.68, 0.6)
+  const zSpan = Math.max(sz * 0.64, 0.6)
+  const headD = Math.max(0.055, sz * 0.085)
+  const arrowW = THREE.MathUtils.clamp(sz * 0.04, 0.036, 0.065)
 
-  // OPM (c=32) bar feeding down to Pair space
-  ctx.addBar([-0.36 * sx, -0.12 * sy, 0], [0.06 * sx, 0.56 * sy, 0.24 * sz], teal)
-  ctx.addMiniLabel('OPM (32) → z', [-0.32 * sx, -0.42 * sy, 0], teal)
+  // Entry stub (m_in)
+  ctx.addMiniArrow(
+    [-0.5 * sx, 0.2 * sy, 0],
+    [-0.4 * sx, 0.2 * sy, 0],
+    ACT_GREEN,
+    arrowW * 1.1,
+    undefined,
+    1
+  )
 
-  // 4 Fanned Pair-Weighted Avg (8 heads) MSA slabs
+  // 1. OPM (c=32) receives m_in and updates Pair Stack (z += OPM(m))
+  ctx.addBar([-0.33 * sx, -0.02 * sy, 0], [0.065 * sx, 0.3 * sy, 0.24 * sz], TEAL_OPM)
+  ctx.addMiniArrow(
+    [-0.4 * sx, 0.2 * sy, 0],
+    [-0.33 * sx, 0.14 * sy, 0],
+    ACT_GREEN,
+    arrowW * 0.85,
+    undefined,
+    1
+  )
+  ctx.addMiniArrow(
+    [-0.33 * sx, -0.18 * sy, 0],
+    [-0.14 * sx, -0.26 * sy, 0],
+    TEAL_OPM,
+    arrowW,
+    [[-0.28 * sx, -0.26 * sy, 0]],
+    2,
+    0.45
+  )
+  ctx.addMiniLabel('OPM (32) → z', [-0.33 * sx, -0.38 * sy, 0], TEAL_OPM, 0.88)
+
+  // 2. Pair Stack (z): TriMul + TriAttn at bottom
+  ctx.addSlab(
+    [0.05 * sx, -0.26 * sy, 0],
+    [0.38 * sx, 0.26 * sy, 0.46 * sz],
+    'pair',
+    '#8b5cf6',
+    WEIGHT_INDIGO
+  )
+  ctx.addMiniLabel('Pair Stack (z)', [0.05 * sx, -0.46 * sy, 0], WEIGHT_INDIGO, 0.88)
+  // Pair Stack exit stub -> Pair track
+  ctx.addMiniArrow(
+    [0.245 * sx, -0.26 * sy, 0],
+    [0.5 * sx, -0.26 * sy, 0],
+    ACT_GREEN,
+    arrowW * 1.1,
+    undefined,
+    1
+  )
+
+  // 3. 8× PWA receives m_in (green) + pair-bias from Pair Stack z (indigo)
   const cols = 4
   for (let i = 0; i < cols; i++) {
     const z = (-0.5 + i / (cols - 1)) * zSpan
-    ctx.addSlab(
-      [-0.04 * sx, 0.16 * sy, z],
-      [0.24 * sx, 0.36 * sy, Math.max(0.06, sz * 0.09)],
-      'msa',
-      block.color,
-      accent
+    ctx.addSlab([0.02 * sx, 0.2 * sy, z], [0.22 * sx, 0.3 * sy, headD], 'msa', block.color, accent)
+    // m_in -> PWA
+    ctx.addMiniArrow(
+      [-0.4 * sx, 0.2 * sy, 0],
+      [-0.095 * sx, 0.2 * sy, z],
+      ACT_GREEN,
+      arrowW * 0.85,
+      [[-0.22 * sx, 0.22 * sy, z * 0.5]],
+      i === 1 ? 1 : 0
+    )
+    // Pair Stack (z) -> PWA (indigo pair-bias!)
+    ctx.addMiniArrow(
+      [0.02 * sx, -0.12 * sy, z * 0.35],
+      [0.02 * sx, 0.04 * sy, z],
+      WEIGHT_INDIGO,
+      arrowW * 0.8,
+      undefined,
+      i === 0 || i === 3 ? 1 : 0
+    )
+    // PWA -> MSA SwiGLU
+    ctx.addMiniArrow(
+      [0.135 * sx, 0.2 * sy, z],
+      [0.255 * sx, 0.2 * sy, z * 0.3],
+      ACT_GREEN,
+      arrowW * 0.8,
+      undefined,
+      i === 2 ? 1 : 0
     )
   }
-  ctx.addMiniLabel(`${spec.heads ?? 8}× PWA`, [-0.04 * sx, 0.44 * sy, zSpan * 0.3], accent)
+  ctx.addMiniLabel(`${spec.heads ?? 8}× PWA`, [0.02 * sx, 0.44 * sy, zSpan * 0.25], accent, 0.88)
 
-  // MSA SwiGLU
+  // 4. MSA SwiGLU -> Exit stub
   ctx.addSlab(
-    [0.32 * sx, 0.18 * sy, 0],
-    [0.14 * sx, 0.42 * sy, 0.42 * sz],
+    [0.33 * sx, 0.2 * sy, 0],
+    [0.14 * sx, 0.36 * sy, 0.4 * sz],
     'transformer',
     block.color,
     accent
   )
-  ctx.addMiniLabel('MSA SwiGLU', [0.32 * sx, 0.46 * sy, 0], accent)
-
-  // Pair Stack (TriMul/TriAttn) mini-slab at bottom
-  ctx.addSlab(
-    [0.18 * sx, -0.24 * sy, 0],
-    [0.34 * sx, 0.26 * sy, 0.46 * sz],
-    'pair',
-    '#8b5cf6',
-    0x8b5cf6
-  )
-  ctx.addMiniLabel('Pair Stack', [0.22 * sx, -0.44 * sy, 0], 0x8b5cf6)
-
-  // Ribbons: OPM -> Pair Stack, Pair Stack -> PWA, PWA -> MSA SwiGLU
-  ctx.addMiniRibbon(
-    [
-      [-0.33 * sx, -0.24 * sy, 0],
-      [-0.12 * sx, -0.28 * sy, 0],
-      [0.01 * sx, -0.24 * sy, 0],
-    ],
-    Math.max(0.05, sz * 0.06),
-    teal,
-    2,
-    0.45
-  )
-  ctx.addMiniRibbon(
-    [
-      [-0.33 * sx, 0.14 * sy, 0],
-      [-0.18 * sx, 0.16 * sy, 0],
-    ],
-    Math.max(0.045, sz * 0.05),
-    green,
-    1,
-    0.5
-  )
-  ctx.addMiniRibbon(
-    [
-      [0.09 * sx, 0.16 * sy, 0],
-      [0.24 * sx, 0.18 * sy, 0],
-    ],
-    Math.max(0.045, sz * 0.05),
-    accent,
-    1,
-    0.5
+  ctx.addMiniLabel('MSA SwiGLU', [0.33 * sx, 0.46 * sy, 0], accent, 0.88)
+  ctx.addMiniArrow(
+    [0.405 * sx, 0.2 * sy, 0],
+    [0.5 * sx, 0.2 * sy, 0],
+    ACT_GREEN,
+    arrowW * 1.1,
+    undefined,
+    1
   )
 }
 
 function buildConditioning(ctx: DetailBuilderContext, block: TensorBlock3D) {
   const [sx, sy, sz] = block.size
   const accent = new THREE.Color(block.color).getHex()
-  const sky = 0x38bdf8
+  const arrowW = THREE.MathUtils.clamp(sz * 0.04, 0.04, 0.07)
+
+  // Entry stub
+  ctx.addMiniArrow(
+    [-0.5 * sx, 0.14 * sy, 0],
+    [-0.39 * sx, 0.14 * sy, 0],
+    ACT_GREEN,
+    arrowW * 1.1,
+    undefined,
+    1
+  )
 
   // Fourier Noise (256)
   ctx.addSlab(
-    [-0.32 * sx, 0.14 * sy, 0],
-    [0.14 * sx, 0.56 * sy, 0.44 * sz],
+    [-0.31 * sx, 0.14 * sy, 0],
+    [0.15 * sx, 0.44 * sy, 0.42 * sz],
     'heatmap',
     '#ec4899',
     accent
   )
-  ctx.addMiniLabel('Fourier (256)', [-0.3 * sx, 0.48 * sy, 0], accent)
+  ctx.addMiniLabel('Fourier (256)', [-0.31 * sx, 0.42 * sy, 0], accent, 0.9)
 
   // RelPos + Trunk fusion slab
-  ctx.addSlab([0, -0.06 * sy, 0], [0.18 * sx, 0.68 * sy, 0.5 * sz], 'pair', '#8b5cf6', 0x8b5cf6)
-  ctx.addMiniLabel('RelPos + Trunk', [0, -0.45 * sy, 0], 0x8b5cf6)
-
-  // AdaLN γ, β projection bars
-  ctx.addBar([0.3 * sx, 0.04 * sy, -0.14 * sz], [0.07 * sx, 0.66 * sy, 0.14 * sz], sky)
-  ctx.addBar([0.38 * sx, 0.04 * sy, 0.14 * sz], [0.07 * sx, 0.66 * sy, 0.14 * sz], 0xf59e0b)
-  ctx.addMiniLabel('AdaLN γ, β', [0.33 * sx, 0.44 * sy, 0], sky)
-
-  ctx.addMiniRibbon(
-    [
-      [-0.24 * sx, 0.14 * sy, 0],
-      [-0.1 * sx, 0.04 * sy, 0],
-      [0.26 * sx, 0.06 * sy, -0.1 * sz],
-    ],
-    Math.max(0.05, sz * 0.055),
-    sky,
-    2,
-    0.48
+  ctx.addSlab(
+    [0, -0.05 * sy, 0],
+    [0.18 * sx, 0.56 * sy, 0.48 * sz],
+    'pair',
+    '#8b5cf6',
+    WEIGHT_INDIGO
   )
-  ctx.addMiniRibbon(
-    [
-      [0.09 * sx, -0.08 * sy, 0],
-      [0.34 * sx, -0.02 * sy, 0.12 * sz],
-    ],
-    Math.max(0.045, sz * 0.05),
-    accent,
-    1,
-    0.48
+  ctx.addMiniLabel('RelPos + Trunk', [0, -0.4 * sy, 0], WEIGHT_INDIGO, 0.9)
+
+  // Fourier -> RelPos + Trunk
+  ctx.addMiniArrow(
+    [-0.23 * sx, 0.12 * sy, 0],
+    [-0.095 * sx, 0.02 * sy, 0],
+    COND_SKY,
+    arrowW,
+    undefined,
+    1
+  )
+
+  // AdaLN γ, β vertical projection bars
+  ctx.addBar([0.3 * sx, 0.06 * sy, -0.14 * sz], [0.065 * sx, 0.56 * sy, 0.14 * sz], COND_SKY)
+  ctx.addBar([0.36 * sx, -0.04 * sy, 0.14 * sz], [0.065 * sx, 0.56 * sy, 0.14 * sz], PARAM_AMBER)
+  ctx.addMiniLabel('AdaLN γ', [0.28 * sx, 0.42 * sy, -0.14 * sz], COND_SKY, 0.88)
+  ctx.addMiniLabel('AdaLN β', [0.36 * sx, -0.4 * sy, 0.14 * sz], PARAM_AMBER, 0.88)
+
+  ctx.addMiniArrow(
+    [0.095 * sx, 0.04 * sy, -0.04 * sz],
+    [0.265 * sx, 0.06 * sy, -0.14 * sz],
+    COND_SKY,
+    arrowW,
+    undefined,
+    1
+  )
+  ctx.addMiniArrow(
+    [0.095 * sx, -0.08 * sy, 0.04 * sz],
+    [0.325 * sx, -0.04 * sy, 0.14 * sz],
+    WEIGHT_INDIGO,
+    arrowW,
+    undefined,
+    1
+  )
+
+  // Exit stubs
+  ctx.addMiniArrow(
+    [0.335 * sx, 0.06 * sy, -0.14 * sz],
+    [0.5 * sx, 0, 0],
+    COND_SKY,
+    arrowW,
+    undefined,
+    1
+  )
+  ctx.addMiniArrow(
+    [0.395 * sx, -0.04 * sy, 0.14 * sz],
+    [0.5 * sx, 0, 0],
+    COND_SKY,
+    arrowW,
+    undefined,
+    0
   )
 }
 
 function buildAtomDec(ctx: DetailBuilderContext, block: TensorBlock3D, spec: DetailedBlockSpec) {
   const [sx, sy, sz] = block.size
   const accent = new THREE.Color(block.color).getHex()
-  const sky = 0x38bdf8
-  const green = 0x22c55e
-  const zSpan = Math.max(sz * 0.68, 0.6)
+  const zSpan = Math.max(sz * 0.66, 0.6)
+  const headD = Math.max(0.055, sz * 0.085)
+  const arrowW = THREE.MathUtils.clamp(sz * 0.04, 0.036, 0.065)
 
-  // Token->Atom broadcast + q_skip
+  // Entry stub -> Token->Atom
+  ctx.addMiniArrow(
+    [-0.5 * sx, 0.04 * sy, 0],
+    [-0.42 * sx, 0.04 * sy, 0],
+    ACT_GREEN,
+    arrowW * 1.1,
+    undefined,
+    1
+  )
+
+  // Token->Atom broadcast
   ctx.addSlab(
     [-0.36 * sx, 0.04 * sy, 0],
-    [0.1 * sx, 0.66 * sy, 0.42 * sz],
+    [0.1 * sx, 0.56 * sy, 0.4 * sz],
     'sequence',
     block.color,
     accent
   )
-  ctx.addMiniLabel('Token→Atom', [-0.35 * sx, 0.44 * sy, 0], accent)
+  ctx.addMiniLabel('Token→Atom', [-0.36 * sx, 0.4 * sy, 0], accent, 0.88)
 
-  // AdaLN bar
-  ctx.addBar([-0.2 * sx, 0, 0], [0.045 * sx, 0.64 * sy, 0.24 * sz], sky)
-  ctx.addMiniLabel('AdaLN', [-0.2 * sx, -0.4 * sy, 0], sky)
+  // AdaLN bar + arrow from Token->Atom + q_skip merge arrow
+  ctx.addBar([-0.19 * sx, 0, 0], [0.05 * sx, 0.56 * sy, 0.24 * sz], COND_SKY)
+  ctx.addMiniArrow(
+    [-0.305 * sx, 0.04 * sy, 0],
+    [-0.22 * sx, 0.02 * sy, 0],
+    ACT_GREEN,
+    arrowW,
+    undefined,
+    1
+  )
+  ctx.addMiniLabel('AdaLN', [-0.19 * sx, -0.38 * sy, 0], COND_SKY, 0.88)
 
-  // 4 Fanned Local Attn heads
+  // 4 Fanned Local Attn heads (32×128 wide local-window bands)
   for (let h = 0; h < 4; h++) {
     const z = (-0.5 + h / 3) * zSpan
     ctx.addSlab(
       [0.06 * sx, 0, z],
-      [0.22 * sx, 0.44 * sy, Math.max(0.06, sz * 0.09)],
+      [0.24 * sx, 0.36 * sy, headD],
       'local-window',
       block.color,
       accent
     )
-    ctx.addMiniRibbon(
-      [
-        [-0.17 * sx, 0, z * 0.3],
-        [-0.06 * sx, 0, z],
-      ],
-      Math.max(0.035, sz * 0.042),
-      accent,
-      h % 2 === 0 ? 1 : 0,
-      0.5
+    ctx.addMiniArrow(
+      [-0.16 * sx, 0, z * 0.3],
+      [-0.065 * sx, 0, z],
+      ACT_GREEN,
+      arrowW * 0.8,
+      undefined,
+      h % 2 === 0 ? 1 : 0
+    )
+    ctx.addMiniArrow(
+      [0.185 * sx, 0, z],
+      [0.305 * sx, 0, z * 0.3],
+      ACT_GREEN,
+      arrowW * 0.8,
+      undefined,
+      h % 2 === 1 ? 1 : 0
     )
   }
-  ctx.addMiniLabel(`${spec.heads ?? 4}× Local Attn`, [0.06 * sx, 0.38 * sy, zSpan * 0.32], accent)
+  ctx.addMiniLabel(
+    `${spec.heads ?? 4}× Local Attn (32×128)`,
+    [0.06 * sx, 0.36 * sy, zSpan * 0.28],
+    accent,
+    0.86
+  )
 
   // Output Δr [N_atom, 3]
   ctx.addSlab(
-    [0.37 * sx, 0, 0],
-    [0.11 * sx, 0.66 * sy, 0.42 * sz],
+    [0.36 * sx, 0, 0],
+    [0.1 * sx, 0.56 * sy, 0.4 * sz],
     'point-cloud',
     '#10b981',
     0x10b981
   )
-  ctx.addMiniLabel('Δr [N_atom,3]', [0.36 * sx, -0.42 * sy, 0], 0x10b981)
+  ctx.addMiniLabel('Δr [N_atom,3]', [0.36 * sx, -0.38 * sy, 0], 0x10b981, 0.88)
 
-  // q_skip residual ribbon
-  ctx.addMiniRibbon(
-    [
-      [-0.36 * sx, -0.34 * sy, 0],
-      [0, -0.42 * sy, 0],
-      [0.37 * sx, -0.34 * sy, 0],
-    ],
-    Math.max(0.045, sz * 0.05),
-    green,
+  // q_skip merge arrow into AdaLN + residual to Δr
+  ctx.addMiniArrow(
+    [-0.36 * sx, -0.34 * sy, 0],
+    [-0.19 * sx, -0.28 * sy, 0],
+    ACT_GREEN,
+    arrowW * 0.9,
+    undefined,
+    1
+  )
+  ctx.addMiniArrow(
+    [-0.36 * sx, -0.34 * sy, 0],
+    [0.36 * sx, -0.3 * sy, 0],
+    ACT_GREEN,
+    arrowW,
+    [[0, -0.44 * sy, 0]],
     2,
     0.42
   )
+  ctx.addMiniLabel('q_skip', [0, -0.5 * sy, 0], ACT_GREEN, 0.84)
+
+  // Exit stub
+  ctx.addMiniArrow([0.415 * sx, 0, 0], [0.5 * sx, 0, 0], ACT_GREEN, arrowW * 1.1, undefined, 1)
 }
 
 function buildConfidenceHeads(ctx: DetailBuilderContext, block: TensorBlock3D) {
   const [sx, sy, sz] = block.size
-  const heads: Array<{ label: string; color: string; hex: number; style: MatrixStyle }> = [
-    { label: 'pLDDT (50)', color: '#22c55e', hex: 0x22c55e, style: 'sequence' },
-    { label: 'PAE (64×64)', color: '#10b981', hex: 0x10b981, style: 'pair' },
-    { label: 'PDE (64×64)', color: '#14b8a6', hex: 0x14b8a6, style: 'heatmap' },
-    { label: 'Disto (64)', color: '#06b6d4', hex: 0x06b6d4, style: 'pair' },
-    { label: 'Exp.Res (2)', color: '#3b82f6', hex: 0x3b82f6, style: 'sequence' },
+  const arrowW = THREE.MathUtils.clamp(sz * 0.038, 0.036, 0.062)
+  const heads: Array<{
+    label: string
+    color: string
+    hex: number
+    style: MatrixStyle
+    is2D: boolean
+  }> = [
+    { label: 'pLDDT (50)', color: '#22c55e', hex: 0x22c55e, style: 'sequence', is2D: false },
+    { label: 'PAE (64×64)', color: '#10b981', hex: 0x10b981, style: 'pair', is2D: true },
+    { label: 'PDE (64×64)', color: '#14b8a6', hex: 0x14b8a6, style: 'heatmap', is2D: true },
+    { label: 'Disto (64)', color: '#06b6d4', hex: 0x06b6d4, style: 'pair', is2D: true },
+    { label: 'Exp.Res (2)', color: '#3b82f6', hex: 0x3b82f6, style: 'sequence', is2D: false },
   ]
 
-  const zSpan = Math.max(sz * 0.78, 0.8)
+  const zSpan = Math.max(sz * 0.82, 0.96)
   heads.forEach((h, i) => {
     const z = (-0.5 + i / (heads.length - 1)) * zSpan
-    const x = -0.14 * sx + (i % 2 === 0 ? -0.05 * sx : 0.05 * sx)
-    ctx.addSlab(
-      [x, 0, z],
-      [0.28 * sx, 0.52 * sy, Math.max(0.06, sz * 0.08)],
-      h.style,
-      h.color,
-      h.hex
+    const x = -0.04 * sx + (i % 2 === 0 ? -0.05 * sx : 0.05 * sx)
+    // 1D per-atom heads: narrow vertical strips; 2D pairwise heads: square 2D matrices
+    const slabW = h.is2D ? 0.24 * sx : 0.08 * sx
+    const slabH = h.is2D ? 0.32 * sy : 0.56 * sy
+    const slabD = Math.max(0.055, sz * 0.08)
+
+    ctx.addSlab([x, 0, z], [slabW, slabH, slabD], h.style, h.color, h.hex)
+
+    // Entry stub fanning out to all 5 heads
+    ctx.addMiniArrow(
+      [-0.5 * sx, 0, 0],
+      [x - slabW * 0.52, 0, z],
+      ACT_GREEN,
+      arrowW * 0.8,
+      [[-0.34 * sx, 0, z * 0.5]],
+      i % 2 === 0 ? 1 : 0
     )
-    ctx.addMiniRibbon(
-      [
-        [x + 0.14 * sx, 0, z],
-        [0.24 * sx, 0, z * 0.35],
-        [0.34 * sx, 0, 0],
-      ],
-      Math.max(0.035, sz * 0.042),
+
+    // Converging arrows into pTM / ipTM ranker
+    ctx.addMiniArrow(
+      [x + slabW * 0.52, 0, z],
+      [0.31 * sx, 0, 0],
       h.hex,
+      arrowW * 0.85,
+      [[0.22 * sx, 0, z * 0.35]],
       1,
       0.48
     )
-    if (i === 0 || i === 2 || i === 4) {
-      ctx.addMiniLabel(h.label, [x, i === 2 ? -0.38 * sy : 0.38 * sy, z], h.hex, 0.9)
-    }
+
+    // Label ALL 5 heads cleanly, staggered top/bottom so zero labels overlap
+    const labelY = i % 2 === 0 ? 0.4 * sy : -0.4 * sy
+    ctx.addMiniLabel(h.label, [x, labelY, z], h.hex, 0.86)
   })
 
-  // Converging pTM / ipTM ranking node
-  ctx.addBar([0.37 * sx, 0, 0], [0.1 * sx, 0.58 * sy, 0.34 * sz], 0x16a34a)
-  ctx.addMiniLabel('pTM / ipTM', [0.36 * sx, 0.42 * sy, 0], 0x16a34a)
+  // Converging pTM / ipTM ranking node + Exit stub
+  ctx.addBar([0.35 * sx, 0, 0], [0.09 * sx, 0.54 * sy, 0.32 * sz], 0x16a34a)
+  ctx.addMiniLabel('pTM / ipTM', [0.35 * sx, 0.42 * sy, 0], 0x16a34a, 0.88)
+  ctx.addMiniArrow([0.4 * sx, 0, 0], [0.5 * sx, 0, 0], ACT_GREEN, arrowW * 1.1, undefined, 1)
 }
 
 export function buildInPlaceDetailedBlock(
@@ -711,7 +1438,7 @@ export function buildInPlaceDetailedBlock(
   const spec = block.detailedSpec
   if (!spec) return null
 
-  const ctx = new DetailBuilderContext(block, spec, isDark)
+  const ctx = new DetailBuilderContext(block, isDark)
   const [sx, sy, sz] = block.size
   const baseColor = new THREE.Color(block.color)
 
@@ -771,6 +1498,15 @@ export function buildInPlaceDetailedBlock(
     setLabelsVisible: (visible: boolean) => {
       for (const sprite of ctx.miniLabels) {
         sprite.visible = visible
+      }
+    },
+    updateLabelScales: (camDist: number) => {
+      const factor = THREE.MathUtils.clamp(camDist / 11, 0.72, 1.32)
+      for (const sprite of ctx.miniLabels) {
+        const base = sprite.userData.baseSize as [number, number] | undefined
+        if (base) {
+          sprite.scale.set(base[0] * factor, base[1] * factor, 1)
+        }
       }
     },
     setHighlighted: (selected: boolean, hovered: boolean, isFocused: boolean, dark: boolean) => {

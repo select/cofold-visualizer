@@ -974,9 +974,15 @@ export class SceneEngine {
               : unfocusedLineOpacity
       })
 
+      const isExpanded = this.expandedBlockIds.has(id)
+      const hideTitleForHudPill = isSelected && Boolean(visual.spec.detailedSpec)
       const isOverviewMode = !hasFocus && this.selectedBlockId === null
       const showOverviewLabel = OVERVIEW_LANDMARK_IDS.has(id) || isHovered
-      visual.labelSprite.visible = isOverviewMode ? showOverviewLabel : true
+      visual.labelSprite.visible = hideTitleForHudPill
+        ? false
+        : isOverviewMode
+          ? showOverviewLabel
+          : true
       visual.labelSprite.material.opacity = isActiveLabel ? 1.0 : unfocusedLabelOpacity
       visual.labelSprite.renderOrder = isActiveLabel ? 20 : 0
       visual.labelSprite.material.depthTest = !isActiveLabel
@@ -987,7 +993,8 @@ export class SceneEngine {
       visual.compactLabelSprite.material.depthTest = !isActiveLabel
 
       const showAxisTags =
-        isSelected || isHovered || (hasFocus && isFocused && this.focusBlockIds.size <= 3)
+        !isExpanded &&
+        (isSelected || isHovered || (hasFocus && isFocused && this.focusBlockIds.size <= 3))
       visual.axisTagSprites.forEach(tag => {
         tag.visible = showAxisTags
       })
@@ -997,12 +1004,13 @@ export class SceneEngine {
       }
 
       if (visual.detailedVisual) {
-        const isExpanded = this.expandedBlockIds.has(id)
         visual.simplifiedGroup.visible = !isExpanded
         visual.detailedVisual.group.visible = isExpanded
         if (isExpanded) {
           visual.detailedVisual.setHighlighted(isSelected, isHovered, isFocused, this.isDark)
-          visual.detailedVisual.setLabelsVisible(isSelected || isHovered)
+          visual.detailedVisual.setLabelsVisible(
+            isExpanded && (isSelected || isHovered || isFocused)
+          )
         }
       }
     }
@@ -1144,19 +1152,21 @@ export class SceneEngine {
     const hasFocus = this.focusBlockIds.size > 0
     const isOverviewMode = !hasFocus && this.selectedBlockId === null
     for (const [id, visual] of this.blockVisuals) {
+      const isFocused = !hasFocus || this.focusBlockIds.has(id)
       if (visual.detailedVisual && visual.detailedVisual.group.visible) {
         visual.detailedVisual.update(dt, this.isFlowPlaying)
         visual.group.getWorldPosition(this.scratchVec)
         const camDist = this.camera.position.distanceTo(this.scratchVec)
         visual.detailedVisual.setLabelsVisible(
-          id === this.selectedBlockId || id === this.hoveredBlockId || camDist < 16
+          id === this.selectedBlockId || id === this.hoveredBlockId || isFocused || camDist < 16
         )
+        visual.detailedVisual.updateLabelScales(camDist)
       }
-      const isFocused = !hasFocus || this.focusBlockIds.has(id)
       const isActiveLabel = id === this.selectedBlockId || id === this.hoveredBlockId || isFocused
-      const wantsVisible = isOverviewMode
-        ? OVERVIEW_LANDMARK_IDS.has(id) || id === this.hoveredBlockId
-        : true
+      const hideTitleForHudPill = id === this.selectedBlockId && Boolean(visual.spec.detailedSpec)
+      const wantsVisible =
+        !hideTitleForHudPill &&
+        (isOverviewMode ? OVERVIEW_LANDMARK_IDS.has(id) || id === this.hoveredBlockId : true)
 
       if (wantsVisible) {
         visual.labelSprite.getWorldPosition(this.scratchVec)
