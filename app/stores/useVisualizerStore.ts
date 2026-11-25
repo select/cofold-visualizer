@@ -17,6 +17,7 @@ export const useVisualizerStore = defineStore('visualizer', {
     activeStepIndex: 0,
     selectedBlockId: null as string | null,
     hoveredBlockId: null as string | null,
+    hoverPointer: null as { x: number; y: number } | null,
     theme: 'light' as VisualizerTheme,
     isFlowPlaying: true,
     recycleCycle: 4,
@@ -74,6 +75,7 @@ export const useVisualizerStore = defineStore('visualizer', {
       this.activeStepIndex = 0
       this.selectedBlockId = null
       this.hoveredBlockId = null
+      this.hoverPointer = null
       this.cameraResetNonce += 1
     },
 
@@ -116,6 +118,13 @@ export const useVisualizerStore = defineStore('visualizer', {
 
     hoverBlock(id: string | null) {
       this.hoveredBlockId = id
+      if (id === null) {
+        this.hoverPointer = null
+      }
+    },
+
+    setHoverPointer(pos: { x: number; y: number } | null) {
+      this.hoverPointer = pos
     },
 
     toggleFlow() {

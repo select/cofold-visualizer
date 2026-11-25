@@ -158,10 +158,10 @@ export function createLabelSprite(
   title: string,
   subtitle: string,
   accentColor: string,
-  isDark: boolean
+  _isDark: boolean
 ): THREE.Sprite {
-  const width = 520
-  const height = 124
+  const width = 768
+  const height = 180
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -170,37 +170,37 @@ export function createLabelSprite(
   if (ctx) {
     ctx.clearRect(0, 0, width, height)
 
-    // Compact high-contrast pill background
-    const padX = 10
-    const padY = 10
+    // bbycroft.net/llm-style high-contrast solid dark badge
+    const padX = 12
+    const padY = 12
     const rw = width - padX * 2
     const rh = height - padY * 2
-    const radius = 18
+    const radius = 24
 
     ctx.beginPath()
     ctx.roundRect(padX, padY, rw, rh, radius)
-    ctx.fillStyle = isDark ? '#1e293b' : '#ffffff'
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
     ctx.fill()
-    ctx.lineWidth = 2.5
-    ctx.strokeStyle = isDark ? '#64748b' : '#cbd5e1'
+    ctx.lineWidth = 3
+    ctx.strokeStyle = '#475569'
     ctx.stroke()
 
     // Accent dot
     ctx.beginPath()
-    ctx.arc(padX + 28, height / 2, 8, 0, Math.PI * 2)
+    ctx.arc(padX + 40, height / 2, 11, 0, Math.PI * 2)
     ctx.fillStyle = accentColor
     ctx.fill()
 
     // Title
-    ctx.fillStyle = isDark ? '#f8fafc' : '#0f172a'
-    ctx.font = '700 34px Inter, system-ui, -apple-system, sans-serif'
+    ctx.fillStyle = '#ffffff'
+    ctx.font = '700 44px Inter, system-ui, -apple-system, sans-serif'
     ctx.textBaseline = 'middle'
-    ctx.fillText(title, padX + 48, height / 2 - 17, rw - 64)
+    ctx.fillText(title, padX + 68, height / 2 - 24, rw - 88)
 
     // Subtitle
-    ctx.fillStyle = isDark ? '#cbd5e1' : '#475569'
-    ctx.font = '600 22px ui-monospace, SFMono-Regular, Menlo, monospace'
-    ctx.fillText(subtitle, padX + 48, height / 2 + 21, rw - 64)
+    ctx.fillStyle = '#cbd5e1'
+    ctx.font = '600 30px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.fillText(subtitle, padX + 68, height / 2 + 28, rw - 88)
   }
 
   const texture = new THREE.CanvasTexture(canvas)
@@ -213,19 +213,20 @@ export function createLabelSprite(
     transparent: true,
     depthWrite: false,
     fog: false,
+    toneMapped: false,
   })
   const sprite = new THREE.Sprite(material)
-  sprite.scale.set(3.0, 0.72, 1)
+  sprite.scale.set(3.2, 0.75, 1)
   return sprite
 }
 
 export function createEdgeLabelSprite(
   text: string,
   colorHex: number,
-  isDark: boolean
+  _isDark: boolean
 ): THREE.Sprite {
-  const width = 460
-  const height = 88
+  const width = 560
+  const height = 96
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -240,27 +241,27 @@ export function createEdgeLabelSprite(
     const padY = 10
     const rw = width - padX * 2
     const rh = height - padY * 2
-    const radius = 16
+    const radius = 18
 
     ctx.beginPath()
     ctx.roundRect(padX, padY, rw, rh, radius)
-    ctx.fillStyle = isDark ? '#1e293b' : '#ffffff'
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
     ctx.fill()
-    ctx.lineWidth = 2.5
-    ctx.strokeStyle = isDark ? '#64748b' : '#cbd5e1'
+    ctx.lineWidth = 3
+    ctx.strokeStyle = '#334155'
     ctx.stroke()
 
     // Small accent indicator on left
     ctx.beginPath()
-    ctx.arc(padX + 24, height / 2, 6, 0, Math.PI * 2)
+    ctx.arc(padX + 28, height / 2, 7.5, 0, Math.PI * 2)
     ctx.fillStyle = accent
     ctx.fill()
 
-    ctx.fillStyle = isDark ? '#f8fafc' : '#0f172a'
-    ctx.font = '700 28px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.fillStyle = '#ffffff'
+    ctx.font = '700 32px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(text, width / 2 + 8, height / 2 + 1, rw - 48)
+    ctx.fillText(text, width / 2 + 10, height / 2 + 1, rw - 56)
   }
 
   const texture = new THREE.CanvasTexture(canvas)
@@ -273,16 +274,19 @@ export function createEdgeLabelSprite(
     transparent: true,
     depthWrite: false,
     fog: false,
+    toneMapped: false,
   })
   const sprite = new THREE.Sprite(material)
-  sprite.scale.set(2.5, 0.48, 1)
+  sprite.scale.set(2.55, 0.44, 1)
   return sprite
 }
 
-export function createAxisTagSprite(text: string, theme: 'light' | 'dark' | boolean): THREE.Sprite {
-  const isDark = theme === 'dark' || theme === true
-  const width = 340
-  const height = 56
+export function createAxisTagSprite(
+  text: string,
+  _theme: 'light' | 'dark' | boolean
+): THREE.Sprite {
+  const width = 560
+  const height = 96
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -291,25 +295,25 @@ export function createAxisTagSprite(text: string, theme: 'light' | 'dark' | bool
   if (ctx) {
     ctx.clearRect(0, 0, width, height)
 
-    const padX = 6
-    const padY = 6
+    const padX = 10
+    const padY = 10
     const rw = width - padX * 2
     const rh = height - padY * 2
-    const radius = 10
+    const radius = 16
 
     ctx.beginPath()
     ctx.roundRect(padX, padY, rw, rh, radius)
-    ctx.fillStyle = isDark ? 'rgba(30, 41, 59, 0.92)' : 'rgba(255, 255, 255, 0.94)'
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)'
     ctx.fill()
-    ctx.lineWidth = 2
-    ctx.strokeStyle = isDark ? '#64748b' : '#cbd5e1'
+    ctx.lineWidth = 2.5
+    ctx.strokeStyle = '#475569'
     ctx.stroke()
 
-    ctx.fillStyle = isDark ? '#e2e8f0' : '#0f172a'
-    ctx.font = '600 22px ui-monospace, SFMono-Regular, Menlo, monospace'
+    ctx.fillStyle = '#cbd5e1'
+    ctx.font = '700 30px ui-monospace, SFMono-Regular, Menlo, monospace'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(text, width / 2, height / 2 + 1, rw - 20)
+    ctx.fillText(text, width / 2, height / 2 + 1, rw - 32)
   }
 
   const texture = new THREE.CanvasTexture(canvas)
@@ -323,10 +327,11 @@ export function createAxisTagSprite(text: string, theme: 'light' | 'dark' | bool
     depthWrite: false,
     depthTest: false,
     fog: false,
+    toneMapped: false,
   })
   const sprite = new THREE.Sprite(material)
   sprite.renderOrder = 18
-  sprite.scale.set(2.1, 0.35, 1)
+  sprite.scale.set(2.25, 0.39, 1)
   sprite.visible = false
   return sprite
 }
@@ -341,8 +346,8 @@ export function createStageHeaderTexture(title: string, isDark: boolean): THREE.
 
   if (ctx) {
     ctx.clearRect(0, 0, width, height)
-    ctx.fillStyle = isDark ? 'rgba(228, 228, 231, 0.55)' : 'rgba(51, 65, 85, 0.62)'
-    ctx.font = '700 32px Inter, system-ui, -apple-system, sans-serif'
+    ctx.fillStyle = isDark ? 'rgba(241, 245, 249, 0.92)' : 'rgba(30, 41, 59, 0.88)'
+    ctx.font = '700 34px Inter, system-ui, -apple-system, sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(title.toUpperCase(), width / 2, height / 2, width - 24)

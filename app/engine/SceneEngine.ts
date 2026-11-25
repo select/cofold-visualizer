@@ -10,6 +10,16 @@ import {
   createTensorMatrixTexture,
 } from './textures'
 
+const OVERVIEW_LANDMARK_IDS = new Set([
+  'inputs',
+  'trunk-recycle-gate',
+  'msa-stack',
+  'pairformer-pair',
+  'diffusion-transformer',
+  'denoised-coords',
+  'confidence-outputs',
+])
+
 export interface SceneEngineCallbacks {
   onSelectBlock?: (blockId: string | null) => void
   onHoverBlock?: (blockId: string | null) => void
@@ -237,8 +247,8 @@ export class SceneEngine {
       { title: 'Inputs & Embedder', cx: -24.0, cz: 0.2, width: 15.0, depth: 9.2, color: 0x3b82f6 },
       { title: 'Templates & MSA', cx: -6.0, cz: -0.2, width: 19.6, depth: 11.6, color: 0x14b8a6 },
       { title: 'Pairformer 48×', cx: 8.5, cz: -0.4, width: 8.0, depth: 9.2, color: 0x9333ea },
-      { title: 'EDM Diffusion 200×', cx: 26.0, cz: 1.3, width: 24.0, depth: 5.8, color: 0xe11d48 },
-      { title: 'Confidence Heads', cx: 20.5, cz: -3.7, width: 11.4, depth: 3.4, color: 0x16a34a },
+      { title: 'EDM Diffusion 200×', cx: 26.0, cz: 1.6, width: 24.0, depth: 5.4, color: 0xe11d48 },
+      { title: 'Confidence Heads', cx: 20.5, cz: -4.2, width: 11.4, depth: 3.6, color: 0x16a34a },
     ]
 
     for (const st of stages) {
@@ -278,7 +288,9 @@ export class SceneEngine {
       const headerMat = new THREE.MeshBasicMaterial({
         map: headerTex,
         transparent: true,
+        opacity: 0.82,
         depthWrite: false,
+        toneMapped: false,
       })
       this.disposableMaterials.push(headerMat)
       const headerMesh = new THREE.Mesh(headerGeo, headerMat)
@@ -404,9 +416,12 @@ export class SceneEngine {
       this.disposableTextures.push(labelSprite.material.map)
     }
     this.disposableMaterials.push(labelSprite.material)
-    const labelExtraY =
-      block.id === 'denoised-coords' || block.id === 'pairformer-pair' ? 1.35 : 0.98
-    labelSprite.position.set(0, sy / 2 + labelExtraY, 0)
+    if (block.id === 'pairformer-pair') {
+      labelSprite.position.set(0, -sy / 2 - 1.15, sz / 2 + 0.5)
+    } else {
+      const labelExtraY = block.id === 'denoised-coords' ? 1.35 : 0.98
+      labelSprite.position.set(0, sy / 2 + labelExtraY, 0)
+    }
     group.add(labelSprite)
 
     const axisTagSprites: THREE.Sprite[] = []
@@ -657,17 +672,21 @@ export class SceneEngine {
       labelSprite.visible = false
     }
 
-    const beadCount = edge.kind === 'recycle' ? 3 : 2
+    const isOpmEdge = edge.id === 'e-msa-stack-to-pf-pair'
+    const beadCount = isOpmEdge ? 5 : edge.kind === 'recycle' ? 3 : 2
     const beads: THREE.Mesh[] = []
     const beadOffsets: number[] = []
     for (let i = 0; i < beadCount; i++) {
       const beadMat = new THREE.MeshBasicMaterial({
-        color: colorHex,
+        color: isOpmEdge ? 0x2dd4bf : colorHex,
         transparent: true,
-        opacity: 0.75,
+        opacity: isOpmEdge ? 0.92 : 0.75,
       })
       this.disposableMaterials.push(beadMat)
       const bead = new THREE.Mesh(this.beadGeo, beadMat)
+      if (isOpmEdge) {
+        bead.scale.setScalar(1.35)
+      }
       beads.push(bead)
       beadOffsets.push(i / beadCount)
     }
@@ -682,7 +701,7 @@ export class SceneEngine {
       labelSprite,
       beads,
       beadOffsets,
-      beadSpeed: edge.kind === 'recycle' ? 0.28 : 0.36,
+      beadSpeed: isOpmEdge ? 0.44 : edge.kind === 'recycle' ? 0.28 : 0.36,
       isHighlighted: false,
     }
   }
@@ -755,7 +774,15 @@ export class SceneEngine {
   }
 
   private applyAspectFraming() {
-    const aspectScale = this.camera.aspect < 1.45 ? 1.45 / Math.max(0.55, this.camera.aspect) : 1
+    const nextFov = this.camera.aspect < 1.1 ? 48 : 44
+    if (this.camera.fov !== nextFov) {
+      this.camera.fov = nextFov
+      this.camera.updateProjectionMatrix()
+    }
+    const aspectScale =
+      this.camera.aspect < 1.35
+        ? Math.min(1.32, Math.pow(1.35 / Math.max(0.65, this.camera.aspect), 0.55))
+        : 1
     const offset = this.baseCamPos.clone().sub(this.baseTarget).multiplyScalar(aspectScale)
     this.desiredTarget.copy(this.baseTarget)
     this.desiredCamPos.copy(this.baseTarget).add(offset)
@@ -891,11 +918,14 @@ export class SceneEngine {
               : unfocusedLineOpacity
       })
 
+      const isOverviewMode = !hasFocus && this.selectedBlockId === null
+      const showOverviewLabel = OVERVIEW_LANDMARK_IDS.has(id) || isHovered
+      visual.labelSprite.visible = isOverviewMode ? showOverviewLabel : true
       visual.labelSprite.material.opacity = isActiveLabel ? 1.0 : unfocusedLabelOpacity
       visual.labelSprite.renderOrder = isActiveLabel ? 20 : 0
       visual.labelSprite.material.depthTest = !isActiveLabel
 
-      const showAxisTags = isSelected || (hasFocus && this.focusBlockIds.has(id))
+      const showAxisTags = isSelected || isHovered
       visual.axisTagSprites.forEach(tag => {
         tag.visible = showAxisTags
       })
@@ -908,10 +938,26 @@ export class SceneEngine {
     this.updateDynamicPairBiasEdge()
 
     const hasHighlightedEdges = this.highlightEdgeIds.size > 0
+    const inspectingBlock = this.selectedBlockId !== null
     for (const ev of this.edgeVisuals) {
       const highlighted = !hasHighlightedEdges || this.highlightEdgeIds.has(ev.spec.id)
-      ev.isHighlighted = highlighted
-      if (!hasHighlightedEdges) {
+      const isIncident =
+        inspectingBlock &&
+        (ev.spec.from === this.selectedBlockId || ev.spec.to === this.selectedBlockId)
+      const isDimmedRecycle =
+        inspectingBlock &&
+        ev.spec.kind === 'recycle' &&
+        this.selectedBlockId !== 'trunk-recycle-gate'
+
+      ev.isHighlighted = inspectingBlock ? isIncident && !isDimmedRecycle : highlighted
+
+      if (isDimmedRecycle) {
+        ev.ribbonMat.opacity = 0.1
+        ev.outlineMat.opacity = 0.12
+      } else if (inspectingBlock) {
+        ev.ribbonMat.opacity = isIncident ? 0.56 : this.isDark ? 0.12 : 0.08
+        ev.outlineMat.opacity = isIncident ? 0.62 : this.isDark ? 0.14 : 0.09
+      } else if (!hasHighlightedEdges) {
         ev.ribbonMat.opacity = 0.34
         ev.outlineMat.opacity = 0.4
       } else if (highlighted) {
@@ -921,14 +967,17 @@ export class SceneEngine {
         ev.ribbonMat.opacity = this.isDark ? 0.16 : 0.11
         ev.outlineMat.opacity = this.isDark ? 0.18 : 0.12
       }
+
       if (ev.labelSprite) {
-        const showEdgeLabel = hasHighlightedEdges && highlighted
+        const showEdgeLabel = inspectingBlock
+          ? isIncident && !isDimmedRecycle
+          : hasHighlightedEdges && highlighted
         ev.labelSprite.visible = showEdgeLabel
         ev.labelSprite.renderOrder = showEdgeLabel ? 22 : 0
         ev.labelSprite.material.depthTest = !showEdgeLabel
       }
       ev.beads.forEach(b => {
-        b.visible = highlighted
+        b.visible = ev.isHighlighted
       })
     }
   }
@@ -1006,13 +1055,13 @@ export class SceneEngine {
     for (const [id, visual] of this.blockVisuals) {
       const isFocused = !hasFocus || this.focusBlockIds.has(id)
       const isActiveLabel = id === this.selectedBlockId || id === this.hoveredBlockId || isFocused
-      if (isActiveLabel) {
+      if (isActiveLabel && visual.labelSprite.visible) {
         visual.labelSprite.getWorldPosition(this.scratchVec)
         const dist = this.camera.position.distanceTo(this.scratchVec)
-        const s = THREE.MathUtils.clamp(dist * 0.082, 2.5, 5.4)
-        visual.labelSprite.scale.set(s, s * 0.24, 1)
+        const s = THREE.MathUtils.clamp(dist * 0.088, 2.8, 6.2)
+        visual.labelSprite.scale.set(s, s * 0.234, 1)
       } else {
-        visual.labelSprite.scale.set(2.4, 2.4 * 0.24, 1)
+        visual.labelSprite.scale.set(2.5, 2.5 * 0.234, 1)
       }
 
       if (visual.sweepMesh && visual.sweepMat && visual.sweepMesh.visible) {
@@ -1023,6 +1072,8 @@ export class SceneEngine {
       }
     }
 
+    this.deoverlapScreenLabels()
+
     if (this.recyclePulseBoost > 0) {
       this.recyclePulseBoost = Math.max(0, this.recyclePulseBoost - dt * 1.4)
     }
@@ -1031,6 +1082,15 @@ export class SceneEngine {
     for (const ev of this.edgeVisuals) {
       if (ev.spec.kind === 'recycle' && this.recyclePulseBoost > 0) {
         ev.ribbonMat.opacity = Math.min(0.85, 0.56 + this.recyclePulseBoost * 0.28)
+      } else if (
+        ev.spec.id === 'e-msa-stack-to-pf-pair' &&
+        ev.isHighlighted &&
+        this.isFlowPlaying &&
+        this.selectedBlockId === null
+      ) {
+        const pulse = 0.5 + 0.5 * Math.sin(now * 0.0045)
+        ev.ribbonMat.opacity = 0.56 + 0.24 * pulse
+        ev.outlineMat.opacity = 0.62 + 0.22 * pulse
       }
       if (!this.isFlowPlaying) continue
       const speedMult = ev.spec.kind === 'recycle' ? 1 + this.recyclePulseBoost * 1.5 : 1
@@ -1042,6 +1102,71 @@ export class SceneEngine {
     }
 
     this.renderer.render(this.scene, this.camera)
+  }
+
+  private deoverlapScreenLabels() {
+    const width = Math.max(1, this.renderer.domElement.clientWidth)
+    const height = Math.max(1, this.renderer.domElement.clientHeight)
+    const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) * 0.5)
+
+    type ScreenRect = { left: number; right: number; top: number; bottom: number }
+    const placedRects: ScreenRect[] = []
+
+    const computeRect = (sprite: THREE.Sprite, pad = 4): ScreenRect | null => {
+      sprite.getWorldPosition(this.scratchVec)
+      const dist = this.camera.position.distanceTo(this.scratchVec)
+      if (dist < 0.5) return null
+
+      const ndc = this.scratchVec.clone().project(this.camera)
+      if (ndc.z < -1 || ndc.z > 1) return null
+
+      const cx = (ndc.x * 0.5 + 0.5) * width
+      const cy = (-ndc.y * 0.5 + 0.5) * height
+      const viewH = 2 * dist * tanHalfFov
+      const pxPerUnit = height / viewH
+      const halfW = sprite.scale.x * pxPerUnit * 0.5 + pad
+      const halfH = sprite.scale.y * pxPerUnit * 0.5 + pad
+      return {
+        left: cx - halfW,
+        right: cx + halfW,
+        top: cy - halfH,
+        bottom: cy + halfH,
+      }
+    }
+
+    const overlaps = (a: ScreenRect, b: ScreenRect) =>
+      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+
+    for (const visual of this.blockVisuals.values()) {
+      if (!visual.labelSprite.visible || visual.labelSprite.material.opacity < 0.25) continue
+      const rect = computeRect(visual.labelSprite, 4)
+      if (rect) placedRects.push(rect)
+    }
+
+    const hasHighlightedEdges = this.highlightEdgeIds.size > 0
+    const inspectingBlock = this.selectedBlockId !== null
+    for (const ev of this.edgeVisuals) {
+      if (!ev.labelSprite) continue
+      const shouldConsider = inspectingBlock
+        ? ev.isHighlighted
+        : hasHighlightedEdges && ev.isHighlighted
+      if (!shouldConsider) {
+        ev.labelSprite.visible = false
+        continue
+      }
+
+      const rect = computeRect(ev.labelSprite, 4)
+      if (!rect) {
+        ev.labelSprite.visible = false
+        continue
+      }
+
+      const collides = placedRects.some(r => overlaps(rect, r))
+      ev.labelSprite.visible = !collides
+      if (!collides) {
+        placedRects.push(rect)
+      }
+    }
   }
 
   public resize() {

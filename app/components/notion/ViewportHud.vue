@@ -5,6 +5,7 @@ import type { InteractiveHint } from '~/types/architecture'
 import { diffusionSigma, formatSigma } from '~/utils/diffusion'
 
 const store = useVisualizerStore()
+const hudRef = ref<HTMLElement | null>(null)
 
 const tabs: Array<{ id: InteractiveHint; label: string; icon: string }> = [
   { id: 'cycle', label: 'Recycle', icon: 'i-lucide-repeat' },
@@ -86,16 +87,33 @@ function onSlider(event: Event) {
 const hovered = computed(() =>
   store.hoveredBlock && store.hoveredBlock.id !== store.selectedBlockId ? store.hoveredBlock : null
 )
+
+const tooltipStyle = computed(() => {
+  const ptr = store.hoverPointer
+  if (!ptr) {
+    return { left: '12px', top: '12px' }
+  }
+  const rect = hudRef.value?.getBoundingClientRect()
+  const maxW = rect ? Math.max(12, rect.width - 316) : 600
+  const maxH = rect ? Math.max(12, rect.height - 140) : 600
+  const left = Math.min(maxW, Math.max(12, ptr.x + 14))
+  const top = Math.min(maxH, Math.max(12, ptr.y + 14))
+  return {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+  }
+})
 </script>
 
 <template>
-  <div class="pointer-events-none absolute inset-0 z-10">
+  <div ref="hudRef" class="pointer-events-none absolute inset-0 z-10">
     <!-- Hovered tensor tooltip -->
     <Transition name="n-pop">
       <div
         v-if="hovered"
         :key="hovered.id"
-        class="n-surface-float absolute left-3 top-3 max-w-[min(360px,calc(100%-24px))] px-3 py-2.5"
+        class="n-surface-float absolute max-w-[min(320px,calc(100%-24px))] px-3 py-2.5"
+        :style="tooltipStyle"
         role="status"
       >
         <div class="flex items-center gap-2">

@@ -1216,8 +1216,8 @@ export const openfold3Model: FoldingModelSpec = {
       focusBlockIds: ['aux-pairformer', 'confidence-outputs', 'denoised-coords'],
       highlightEdgeIds: ['e-pf-pair-to-aux', 'e-coords-to-aux', 'e-aux-to-heads'],
       camera: {
-        position: [20.5, -1.8, 17.5],
-        target: [20.5, -4.8, -3.5],
+        position: [26.5, -1.5, 16.5],
+        target: [24.0, -4.5, -1.5],
       },
       interactiveHint: null,
     },

@@ -118,16 +118,6 @@ const leaf = computed(() => {
     <button
       type="button"
       class="n-btn n-btn-icon"
-      aria-label="Reset camera"
-      title="Reset camera (R)"
-      :disabled="store.viewMode === 'docs'"
-      @click="store.resetCamera()"
-    >
-      <span class="i-lucide-scan h-4 w-4"></span>
-    </button>
-    <button
-      type="button"
-      class="n-btn n-btn-icon"
       :aria-label="store.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
       :title="store.theme === 'dark' ? 'Light mode' : 'Dark mode'"
       @click="store.toggleTheme()"

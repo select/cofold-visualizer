@@ -18,6 +18,20 @@ function syncStepCameraAndFocus() {
   engine.flyToCamera(step.camera.position, step.camera.target)
 }
 
+function handlePointerMove(e: PointerEvent) {
+  const el = containerRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  store.setHoverPointer({
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top,
+  })
+}
+
+function handlePointerLeave() {
+  store.setHoverPointer(null)
+}
+
 onMounted(() => {
   const el = containerRef.value
   if (!el) return
@@ -133,7 +147,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="relative h-full w-full overflow-hidden">
+  <div
+    class="relative h-full w-full overflow-hidden"
+    @pointermove="handlePointerMove"
+    @pointerleave="handlePointerLeave"
+  >
     <div ref="containerRef" class="h-full w-full"></div>
 
     <div
