@@ -891,8 +891,8 @@ export const openfold3Model: FoldingModelSpec = {
       focusBlockIds: [],
       highlightEdgeIds: [],
       camera: {
-        position: [-6.0, 26.0, 62.0],
-        target: [3.0, -1.1, 0.0],
+        position: [-8.5, 28.5, 68.5],
+        target: [0.5, -1.1, 0.0],
       },
       interactiveHint: null,
     },

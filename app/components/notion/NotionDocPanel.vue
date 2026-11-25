@@ -183,8 +183,10 @@ watch(
               <dt class="flex w-[150px] shrink-0 items-center gap-2 pt-[3px] text-n-muted">
                 <span class="i-lucide-box h-3.5 w-3.5"></span>Shape
               </dt>
-              <dd class="min-w-0 pt-[2px]">
-                <code class="n-code n-code-neutral">{{ block.shape }}</code>
+              <dd class="min-w-0 whitespace-normal break-words pt-[2px]">
+                <code class="n-code n-code-neutral !whitespace-normal break-words">{{
+                  block.shape
+                }}</code>
               </dd>
             </div>
             <div class="flex min-h-[34px] items-start py-1">
@@ -251,7 +253,7 @@ watch(
             <p class="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-n-faint">
               Equation
             </p>
-            <code class="n-mono block whitespace-pre text-[13.5px] text-n-text">{{
+            <code class="n-mono block whitespace-pre-wrap break-words text-[13.5px] text-n-text">{{
               block.formula
             }}</code>
           </div>
@@ -347,10 +349,12 @@ watch(
                 <span class="i-lucide-list h-3.5 w-3.5"></span>
                 <span class="truncate">{{ prop.label }}</span>
               </dt>
-              <dd class="min-w-0 pt-[2px] text-n-text">
-                <code v-if="prop.mono" class="n-code n-code-neutral !whitespace-normal">{{
-                  prop.value
-                }}</code>
+              <dd class="min-w-0 whitespace-normal break-words pt-[2px] text-n-text">
+                <code
+                  v-if="prop.mono"
+                  class="n-code n-code-neutral !whitespace-normal break-words"
+                  >{{ prop.value }}</code
+                >
                 <span v-else>{{ prop.value }}</span>
               </dd>
             </div>
@@ -394,7 +398,7 @@ watch(
             <p class="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-n-faint">
               Equation
             </p>
-            <code class="n-mono block whitespace-pre text-[13.5px] text-n-text">{{
+            <code class="n-mono block whitespace-pre-wrap break-words text-[13.5px] text-n-text">{{
               step.formula
             }}</code>
           </div>

@@ -453,6 +453,9 @@ export class SceneEngine {
     if (block.id === 'pairformer-pair') {
       labelSprite.position.set(0, -sy / 2 - 1.15, sz / 2 + 0.5)
       compactLabelSprite.position.copy(labelSprite.position)
+    } else if (block.id === 'confidence-outputs') {
+      labelSprite.position.set(0, -sy / 2 - 1.05, 0)
+      compactLabelSprite.position.copy(labelSprite.position)
     } else {
       const labelExtraY = block.id === 'denoised-coords' ? 1.35 : 0.98
       labelSprite.position.set(0, sy / 2 + labelExtraY, 0)
@@ -855,7 +858,13 @@ export class SceneEngine {
     const visual = this.blockVisuals.get(blockId)
     if (!visual) return
     const { x: bx, y: by, z: bz } = visual.group.position
-    this.flyToCamera([bx + 3.5, by + 4.5, bz + 13.5], [bx, by, bz])
+    const [sx, sy] = visual.spec.size
+    if (this.expandedBlockIds.has(blockId) && sx < 3.5) {
+      const dist = Math.max(5.8, Math.max(sx, sy) * 2.35)
+      this.flyToCamera([bx + dist * 0.24, by + dist * 0.32, bz + dist], [bx, by, bz])
+    } else {
+      this.flyToCamera([bx + 3.5, by + 4.5, bz + 13.5], [bx, by, bz])
+    }
   }
 
   private updateDynamicPairBiasEdge() {

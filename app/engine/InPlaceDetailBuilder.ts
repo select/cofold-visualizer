@@ -282,8 +282,10 @@ class DetailBuilderContext {
     }
     this.materials.push(sprite.material)
 
+    const [sx] = this.block.size
+    const sizeScale = THREE.MathUtils.clamp(sx / 4.8, 0.58, 1.0)
     const aspect = (sprite.userData.aspect as number) || 2.5
-    const baseH = 0.22 * scaleMultiplier
+    const baseH = 0.22 * scaleMultiplier * sizeScale
     const baseW = baseH * aspect
     sprite.userData.baseSize = [baseW, baseH]
     sprite.scale.set(baseW, baseH, 1)
@@ -501,12 +503,12 @@ function buildMultiheadAttn(
       WEIGHT_INDIGO
     )
 
-    ctx.addMiniLabel('Q/K/V W', [-0.29 * sx, 0.44 * sy, zSpan * 0.25], WEIGHT_INDIGO, 0.88)
-    ctx.addMiniLabel('Q/K/V', [-0.175 * sx, 0.44 * sy, zSpan * 0.25], accent, 0.88)
-    ctx.addMiniLabel('Attn Scores', [-0.055 * sx, 0.42 * sy, zSpan * 0.25], WEIGHT_INDIGO, 0.88)
-    ctx.addMiniLabel('Pair Bias b_ij', [-0.055 * sx, -0.52 * sy, 0], WEIGHT_INDIGO, 0.86)
-    ctx.addMiniLabel('Softmax', [0.055 * sx, 0.4 * sy, zSpan * 0.25], PARAM_AMBER, 0.88)
-    ctx.addMiniLabel('V Out', [0.155 * sx, -0.34 * sy, zSpan * 0.25], accent, 0.88)
+    ctx.addMiniLabel('Q/K/V W', [-0.29 * sx, 0.44 * sy, zSpan * 0.25], WEIGHT_INDIGO, 0.78)
+    ctx.addMiniLabel('Q/K/V', [-0.175 * sx, 0.44 * sy, zSpan * 0.25], accent, 0.78)
+    ctx.addMiniLabel('Attn Scores', [-0.055 * sx, 0.5 * sy, zSpan * 0.25], WEIGHT_INDIGO, 0.78)
+    ctx.addMiniLabel('Pair Bias b_ij', [-0.055 * sx, -0.52 * sy, 0], WEIGHT_INDIGO, 0.78)
+    ctx.addMiniLabel('Softmax', [0.055 * sx, 0.32 * sy, zSpan * 0.25], PARAM_AMBER, 0.78)
+    ctx.addMiniLabel('V Out', [0.155 * sx, -0.34 * sy, zSpan * 0.25], accent, 0.78)
 
     // Proj Weights (C×C) -> Attn Out
     ctx.addSlab(
@@ -637,47 +639,51 @@ function buildMultiheadAttn(
     )
     ctx.addMiniLabel(
       isAda ? 'AdaLN (γ,β)' : 'LN (γ,β)',
-      [-0.39 * sx, t1Y + 0.24 * sy, 0],
+      [-0.39 * sx, t1Y + 0.26 * sy, 0],
       normColor,
-      0.88
+      0.8
     )
 
-    // Fanned heads on Tier 1
+    // Fanned heads on Tier 1 (3 thin stacked Q/K/V sub-slabs per head)
+    const qkvOffsets: [number, number, number] = [0.095 * sy, 0, -0.095 * sy]
     for (let h = 0; h < headCount; h++) {
       const z = (-0.5 + h / (headCount - 1)) * zSpan
 
-      // Q/K/V Weights
-      ctx.addSlab(
-        [-0.25 * sx, t1Y, z],
-        [0.08 * sx, 0.28 * sy, headD],
-        'transformer',
-        '#6366f1',
-        WEIGHT_INDIGO
-      )
-      // Q/K/V Vectors
-      ctx.addSlab(
-        [-0.12 * sx, t1Y, z],
-        [0.075 * sx, 0.26 * sy, headD],
-        'sequence',
-        block.color,
-        accent
-      )
-      ctx.addMiniArrow(
-        [-0.205 * sx, t1Y, z],
-        [-0.16 * sx, t1Y, z],
-        WEIGHT_INDIGO,
-        arrowW * 0.75,
-        undefined,
-        0
-      )
-      ctx.addMiniArrow(
-        [-0.35 * sx, t1Y, z * 0.3],
-        [-0.16 * sx, t1Y + 0.08 * sy, z],
-        ACT_GREEN,
-        arrowW * 0.7,
-        [[-0.25 * sx, t1Y + 0.12 * sy, z * 0.7]],
-        h === 1 ? 1 : 0
-      )
+      for (let r = 0; r < 3; r++) {
+        const ry = t1Y + qkvOffsets[r]!
+        // Q/K/V Weights sub-slab
+        ctx.addSlab(
+          [-0.25 * sx, ry, z],
+          [0.08 * sx, 0.075 * sy, headD],
+          'transformer',
+          '#6366f1',
+          WEIGHT_INDIGO
+        )
+        // Q/K/V Vectors sub-slab
+        ctx.addSlab(
+          [-0.12 * sx, ry, z],
+          [0.075 * sx, 0.07 * sy, headD],
+          'sequence',
+          block.color,
+          accent
+        )
+        ctx.addMiniArrow(
+          [-0.205 * sx, ry, z],
+          [-0.16 * sx, ry, z],
+          WEIGHT_INDIGO,
+          arrowW * 0.65,
+          undefined,
+          0
+        )
+        ctx.addMiniArrow(
+          [-0.35 * sx, t1Y + qkvOffsets[r]! * 0.45, z * 0.3],
+          [-0.16 * sx, ry, z],
+          ACT_GREEN,
+          arrowW * 0.62,
+          [[-0.25 * sx, t1Y + qkvOffsets[r]! * 0.85, z * 0.7]],
+          h === 1 && r === 1 ? 1 : 0
+        )
+      }
 
       // Attn Scores (wide 32×128 for Local Window, square for DiT)
       ctx.addSlab(
@@ -749,7 +755,7 @@ function buildMultiheadAttn(
       )
       ctx.addMiniArrow(
         [0.308 * sx, t1Y, z],
-        [0.35 * sx, t1Y, z * 0.3],
+        [0.325 * sx, t1Y, z * 0.3],
         ACT_GREEN,
         arrowW * 0.72,
         undefined,
@@ -768,22 +774,22 @@ function buildMultiheadAttn(
 
     // Proj Weights -> Attn Out on Tier 1
     ctx.addSlab(
-      [0.37 * sx, t1Y, 0],
-      [0.065 * sx, 0.3 * sy, 0.32 * sz],
+      [0.355 * sx, t1Y, 0],
+      [0.055 * sx, 0.3 * sy, 0.32 * sz],
       'transformer',
       '#6366f1',
       WEIGHT_INDIGO
     )
     ctx.addSlab(
-      [0.44 * sx, t1Y, 0],
-      [0.055 * sx, 0.3 * sy, 0.32 * sz],
+      [0.45 * sx, t1Y, 0],
+      [0.05 * sx, 0.3 * sy, 0.32 * sz],
       'sequence',
       block.color,
       accent
     )
     ctx.addMiniArrow(
-      [0.405 * sx, t1Y, 0],
-      [0.41 * sx, t1Y, 0],
+      [0.385 * sx, t1Y, 0],
+      [0.423 * sx, t1Y, 0],
       WEIGHT_INDIGO,
       arrowW * 0.85,
       undefined,
@@ -793,7 +799,7 @@ function buildMultiheadAttn(
     // Residual Skip 1 over Tier 1
     ctx.addMiniArrow(
       [-0.43 * sx, t1Y + 0.16 * sy, 0],
-      [0.44 * sx, t1Y + 0.16 * sy, 0],
+      [0.45 * sx, t1Y + 0.16 * sy, 0],
       ACT_GREEN,
       arrowW,
       [[0, t1Y + 0.28 * sy, 0]],
@@ -801,22 +807,27 @@ function buildMultiheadAttn(
       0.38
     )
 
-    ctx.addMiniLabel('Q/K/V W', [-0.25 * sx, t1Y + 0.22 * sy, zSpan * 0.25], WEIGHT_INDIGO, 0.85)
-    ctx.addMiniLabel('Q/K/V', [-0.12 * sx, t1Y + 0.22 * sy, zSpan * 0.25], accent, 0.85)
+    ctx.addMiniLabel('Q/K/V W', [-0.25 * sx, t1Y + 0.38 * sy, zSpan * 0.25], WEIGHT_INDIGO, 0.78)
+    ctx.addMiniLabel('Q/K/V', [-0.12 * sx, t1Y + 0.26 * sy, zSpan * 0.25], accent, 0.78)
     ctx.addMiniLabel(
       isLocal ? 'Attn (32×128)' : 'Attn + b_ij',
-      [0.03 * sx, t1Y + 0.22 * sy, zSpan * 0.25],
+      [0.03 * sx, t1Y + 0.38 * sy, zSpan * 0.25],
       WEIGHT_INDIGO,
-      0.85
+      0.78
     )
-    ctx.addMiniLabel('Pair Bias b_ij', [0.03 * sx, t1Y - 0.27 * sy, 0], WEIGHT_INDIGO, 0.82)
-    ctx.addMiniLabel('Softmax', [0.16 * sx, t1Y + 0.2 * sy, zSpan * 0.25], PARAM_AMBER, 0.85)
-    ctx.addMiniLabel('V Out', [0.27 * sx, t1Y - 0.22 * sy, zSpan * 0.25], accent, 0.85)
-    ctx.addMiniLabel('Proj + Out', [0.4 * sx, t1Y + 0.22 * sy, 0], accent, 0.85)
+    ctx.addMiniLabel(
+      'Pair Bias b_ij',
+      [-0.12 * sx, t1Y - 0.16 * sy, 0.48 * sz],
+      WEIGHT_INDIGO,
+      0.78
+    )
+    ctx.addMiniLabel('Softmax', [0.16 * sx, t1Y + 0.26 * sy, zSpan * 0.25], PARAM_AMBER, 0.78)
+    ctx.addMiniLabel('V Out', [0.27 * sx, t1Y + 0.38 * sy, zSpan * 0.25], accent, 0.78)
+    ctx.addMiniLabel('Proj + Out', [0.42 * sx, t1Y + 0.26 * sy, 0], accent, 0.78)
 
     // Hop from Tier 1 Attn Out -> Tier 2 SwiGLU LN
     ctx.addMiniArrow(
-      [0.44 * sx, t1Y - 0.15 * sy, 0],
+      [0.45 * sx, t1Y - 0.15 * sy, 0],
       [-0.35 * sx, t2Y + 0.12 * sy, 0],
       ACT_GREEN,
       arrowW,
@@ -872,10 +883,10 @@ function buildMultiheadAttn(
     // Exit stub (+0.5*sx)
     ctx.addMiniArrow([0.32 * sx, t2Y, 0], [0.5 * sx, t2Y, 0], ACT_GREEN, arrowW * 1.1, undefined, 1)
 
-    ctx.addMiniLabel('SwiGLU LN', [-0.35 * sx, t2Y + 0.2 * sy, 0], normColor, 0.84)
-    ctx.addMiniLabel('W_gate/up (4C)', [-0.08 * sx, t2Y + 0.23 * sy, 0], accent, 0.88)
-    ctx.addMiniLabel('SiLU ⊙', [0.08 * sx, t2Y - 0.21 * sy, 0], PARAM_AMBER, 0.84)
-    ctx.addMiniLabel('W_down (C)', [0.27 * sx, t2Y + 0.2 * sy, 0], accent, 0.86)
+    ctx.addMiniLabel('SwiGLU LN', [-0.35 * sx, t2Y - 0.24 * sy, 0], normColor, 0.8)
+    ctx.addMiniLabel('W_gate/up (4C)', [-0.08 * sx, t2Y - 0.36 * sy, 0], accent, 0.82)
+    ctx.addMiniLabel('SiLU ⊙', [0.08 * sx, t2Y - 0.24 * sy, 0], PARAM_AMBER, 0.8)
+    ctx.addMiniLabel('W_down (C)', [0.27 * sx, t2Y - 0.36 * sy, 0], accent, 0.8)
   }
 }
 
@@ -1025,7 +1036,7 @@ function buildPairStack(ctx: DetailBuilderContext, block: TensorBlock3D, spec: D
     // TriAttn End -> SwiGLU
     ctx.addMiniArrow(
       [0.265 * sx, 0, z],
-      [0.315 * sx, 0, z * 0.3],
+      [0.305 * sx, 0, z * 0.3],
       ACT_GREEN,
       arrowW * 0.75,
       undefined,
@@ -1047,22 +1058,22 @@ function buildPairStack(ctx: DetailBuilderContext, block: TensorBlock3D, spec: D
 
   // 4. SwiGLU (4×: 128 -> 512 -> 128)
   ctx.addSlab(
-    [0.36 * sx, 0, 0],
-    [0.085 * sx, 0.68 * sy, 0.78 * sz],
+    [0.348 * sx, 0, 0],
+    [0.078 * sx, 0.68 * sy, 0.78 * sz],
     'transformer',
     block.color,
     accent
   )
   ctx.addSlab(
-    [0.445 * sx, 0, 0],
-    [0.055 * sx, 0.46 * sy, 0.34 * sz],
+    [0.456 * sx, 0, 0],
+    [0.052 * sx, 0.46 * sy, 0.34 * sz],
     'sequence',
     block.color,
     accent
   )
-  ctx.addMiniArrow([0.405 * sx, 0, 0], [0.415 * sx, 0, 0], ACT_GREEN, arrowW * 0.9, undefined, 0)
+  ctx.addMiniArrow([0.39 * sx, 0, 0], [0.428 * sx, 0, 0], ACT_GREEN, arrowW * 0.9, undefined, 0)
   // Exit stub (+0.5*sx)
-  ctx.addMiniArrow([0.475 * sx, 0, 0], [0.5 * sx, 0, 0], ACT_GREEN, arrowW * 1.1, undefined, 1)
+  ctx.addMiniArrow([0.484 * sx, 0, 0], [0.5 * sx, 0, 0], ACT_GREEN, arrowW * 1.1, undefined, 1)
   ctx.addMiniLabel('SwiGLU (4×)', [0.38 * sx, 0.44 * sy, 0], accent, 0.88)
 }
 
@@ -1389,9 +1400,11 @@ function buildConfidenceHeads(ctx: DetailBuilderContext, block: TensorBlock3D) {
   ]
 
   const zSpan = Math.max(sz * 0.82, 0.96)
+  const xOffsets = [-0.22 * sx, -0.13 * sx, -0.04 * sx, 0.05 * sx, 0.14 * sx]
+  const labelYOffsets = [0.48 * sy, -0.36 * sy, 0.34 * sy, -0.5 * sy, 0.2 * sy]
   heads.forEach((h, i) => {
     const z = (-0.5 + i / (heads.length - 1)) * zSpan
-    const x = -0.04 * sx + (i % 2 === 0 ? -0.05 * sx : 0.05 * sx)
+    const x = xOffsets[i]!
     // 1D per-atom heads: narrow vertical strips; 2D pairwise heads: square 2D matrices
     const slabW = h.is2D ? 0.24 * sx : 0.08 * sx
     const slabH = h.is2D ? 0.32 * sy : 0.56 * sy
@@ -1405,7 +1418,7 @@ function buildConfidenceHeads(ctx: DetailBuilderContext, block: TensorBlock3D) {
       [x - slabW * 0.52, 0, z],
       ACT_GREEN,
       arrowW * 0.8,
-      [[-0.34 * sx, 0, z * 0.5]],
+      [[-0.36 * sx, 0, z * 0.5]],
       i % 2 === 0 ? 1 : 0
     )
 
@@ -1420,9 +1433,9 @@ function buildConfidenceHeads(ctx: DetailBuilderContext, block: TensorBlock3D) {
       0.48
     )
 
-    // Label ALL 5 heads cleanly, staggered top/bottom so zero labels overlap
-    const labelY = i % 2 === 0 ? 0.4 * sy : -0.4 * sy
-    ctx.addMiniLabel(h.label, [x, labelY, z], h.hex, 0.86)
+    // Label ALL 5 heads cleanly, fanned diagonally with distinct Y offsets so zero labels overlap
+    const labelY = labelYOffsets[i]!
+    ctx.addMiniLabel(h.label, [x, labelY, z], h.hex, 0.76)
   })
 
   // Converging pTM / ipTM ranking node + Exit stub
