@@ -203,10 +203,14 @@ function inspectBlock(id: string) {
       </button>
       <div class="n-collapse" :data-open="blocksOpen">
         <ul>
-          <li v-for="block in store.activeModel.blocks" :key="block.id">
+          <li
+            v-for="block in store.activeModel.blocks"
+            :key="block.id"
+            class="flex items-center gap-0.5"
+          >
             <button
               type="button"
-              class="n-row w-full text-left"
+              class="n-row min-w-0 flex-1 text-left"
               :data-active="store.selectedBlockId === block.id"
               :title="`${block.label} · ${block.shape}`"
               @click="inspectBlock(block.id)"
@@ -219,6 +223,32 @@ function inspectBlock(id: string) {
               ></span>
               <span class="min-w-0 flex-1 truncate text-[13px]">{{ block.shortLabel }}</span>
               <span class="text-[10px] text-n-faint">{{ block.category }}</span>
+            </button>
+            <button
+              v-if="block.detailedSpec"
+              type="button"
+              class="flex h-7 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-n-hover"
+              :class="
+                store.isBlockExpanded(block.id)
+                  ? 'bg-n-active text-n-text'
+                  : 'text-n-faint hover:text-n-text'
+              "
+              :title="
+                store.isBlockExpanded(block.id)
+                  ? `Simplify ${block.shortLabel}`
+                  : `Expand ${block.shortLabel} internals`
+              "
+              :aria-label="
+                store.isBlockExpanded(block.id)
+                  ? `Simplify ${block.shortLabel}`
+                  : `Expand ${block.shortLabel} internals`
+              "
+              @click.stop="store.toggleBlockExpanded(block.id)"
+            >
+              <span
+                :class="store.isBlockExpanded(block.id) ? 'i-lucide-cpu' : 'i-lucide-layers'"
+                class="h-3.5 w-3.5"
+              ></span>
             </button>
           </li>
         </ul>

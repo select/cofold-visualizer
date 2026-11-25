@@ -5,7 +5,7 @@ import type { FoldingModelSpec, TensorBlock3D, WalkthroughStep } from '~/types/a
 
 export type VisualizerTheme = 'light' | 'dark'
 export type VisualizerViewMode = 'split' | 'canvas' | 'docs'
-export type DetailLevel = 'simplified' | 'detailed'
+export type DetailLevel = 'simplified' | 'mixed' | 'detailed'
 
 function clampInt(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
@@ -26,7 +26,7 @@ export const useVisualizerStore = defineStore('visualizer', {
     diffusionStep: 160,
     cameraResetNonce: 0,
     viewMode: 'split' as VisualizerViewMode,
-    detailLevel: 'simplified' as DetailLevel,
+    expandedBlockIds: [] as string[],
     sidebarOpen: true,
     commandPaletteOpen: false,
   }),
@@ -67,6 +67,27 @@ export const useVisualizerStore = defineStore('visualizer', {
       const idx = clampInt(this.activeStepIndex, 0, total - 1)
       return Math.round((idx / (total - 1)) * 100)
     },
+
+    expandableBlockIds(): string[] {
+      return this.activeModel.blocks.filter(b => Boolean(b.detailedSpec)).map(b => b.id)
+    },
+
+    isBlockExpanded(): (id: string) => boolean {
+      return (id: string) => this.expandedBlockIds.includes(id)
+    },
+
+    expandedCount(state): number {
+      return state.expandedBlockIds.length
+    },
+
+    detailLevel(state): DetailLevel {
+      if (state.expandedBlockIds.length === 0) return 'simplified'
+      const expandable = this.expandableBlockIds
+      if (expandable.length > 0 && expandable.every(id => state.expandedBlockIds.includes(id))) {
+        return 'detailed'
+      }
+      return 'mixed'
+    },
   },
 
   actions: {
@@ -78,6 +99,7 @@ export const useVisualizerStore = defineStore('visualizer', {
       this.selectedBlockId = null
       this.hoveredBlockId = null
       this.hoverPointer = null
+      this.expandedBlockIds = []
       this.cameraResetNonce += 1
     },
 
@@ -161,12 +183,49 @@ export const useVisualizerStore = defineStore('visualizer', {
       this.viewMode = mode
     },
 
-    setDetailLevel(level: DetailLevel) {
-      this.detailLevel = level
+    toggleBlockExpanded(id: string) {
+      const block = this.activeModel.blocks.find(b => b.id === id)
+      if (!block?.detailedSpec) return
+      if (this.expandedBlockIds.includes(id)) {
+        this.expandedBlockIds = this.expandedBlockIds.filter(x => x !== id)
+      } else {
+        this.expandedBlockIds = [...this.expandedBlockIds, id]
+      }
+    },
+
+    setBlockExpanded(id: string, expanded: boolean) {
+      const block = this.activeModel.blocks.find(b => b.id === id)
+      if (!block?.detailedSpec) return
+      const has = this.expandedBlockIds.includes(id)
+      if (expanded && !has) {
+        this.expandedBlockIds = [...this.expandedBlockIds, id]
+      } else if (!expanded && has) {
+        this.expandedBlockIds = this.expandedBlockIds.filter(x => x !== id)
+      }
+    },
+
+    expandAllBlocks() {
+      this.expandedBlockIds = [...this.expandableBlockIds]
+    },
+
+    collapseAllBlocks() {
+      this.expandedBlockIds = []
+    },
+
+    setDetailLevel(level: 'simplified' | 'detailed') {
+      if (level === 'detailed') {
+        this.expandAllBlocks()
+      } else {
+        this.collapseAllBlocks()
+      }
     },
 
     toggleDetailLevel() {
-      this.detailLevel = this.detailLevel === 'simplified' ? 'detailed' : 'simplified'
+      if (this.detailLevel === 'detailed') {
+        this.collapseAllBlocks()
+      } else {
+        this.expandAllBlocks()
+      }
     },
 
     toggleSidebar() {

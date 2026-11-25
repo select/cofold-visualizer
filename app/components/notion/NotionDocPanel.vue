@@ -119,6 +119,64 @@ watch(
             {{ block.shortLabel }} · {{ categoryLabel(block.category) }} tensor
           </p>
 
+          <!-- In-place detail mode toggle -->
+          <div
+            v-if="block.detailedSpec"
+            class="mt-5 rounded-lg border border-n-border bg-[var(--n-callout-neutral)] p-3.5"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="i-lucide-cpu h-4 w-4 text-n-muted"></span>
+                <span class="text-[13px] font-medium text-n-text">3D View mode</span>
+              </div>
+              <div
+                class="flex items-center rounded-md bg-n-hover p-0.5"
+                role="radiogroup"
+                aria-label="Block 3D view mode"
+              >
+                <button
+                  type="button"
+                  role="radio"
+                  :aria-checked="!store.isBlockExpanded(block.id)"
+                  class="flex h-6 items-center gap-1.5 rounded px-2 text-[12px] transition-colors"
+                  :class="
+                    !store.isBlockExpanded(block.id)
+                      ? 'bg-n-bg text-n-text shadow-[0_1px_2px_rgba(15,15,15,0.1),0_0_0_1px_var(--n-border)]'
+                      : 'text-n-muted hover:text-n-text'
+                  "
+                  @click="store.setBlockExpanded(block.id, false)"
+                >
+                  <span class="i-lucide-layers h-3.5 w-3.5"></span>
+                  Simplified
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  :aria-checked="store.isBlockExpanded(block.id)"
+                  class="flex h-6 items-center gap-1.5 rounded px-2 text-[12px] transition-colors"
+                  :class="
+                    store.isBlockExpanded(block.id)
+                      ? 'bg-n-bg text-n-text shadow-[0_1px_2px_rgba(15,15,15,0.1),0_0_0_1px_var(--n-border)]'
+                      : 'text-n-muted hover:text-n-text'
+                  "
+                  @click="store.setBlockExpanded(block.id, true)"
+                >
+                  <span class="i-lucide-cpu h-3.5 w-3.5"></span>
+                  Detailed Internals
+                </button>
+              </div>
+            </div>
+            <div class="mt-2.5 flex flex-wrap gap-1.5">
+              <span
+                v-for="stage in block.detailedSpec.subStages"
+                :key="stage"
+                class="n-pill n-mono !text-[11px]"
+              >
+                {{ stage }}
+              </span>
+            </div>
+          </div>
+
           <!-- Properties -->
           <dl class="mt-6 border-y border-n-border py-2 text-[14px]">
             <div class="flex min-h-[34px] items-start py-1">
@@ -357,22 +415,48 @@ watch(
               <span class="text-[12px] font-normal text-n-faint">click to inspect</span>
             </h3>
             <div class="mt-2.5 flex flex-wrap gap-1.5">
-              <button
+              <div
                 v-for="b in relatedBlocks"
                 :key="b.id"
-                type="button"
-                class="group inline-flex items-center gap-1.5 rounded-md border border-n-border px-2 py-1 text-[13px] text-n-text transition-colors hover:bg-n-hover"
-                :title="b.shape"
-                @click="store.selectBlock(b.id)"
-                @mouseenter="store.hoverBlock(b.id)"
-                @mouseleave="store.hoverBlock(null)"
+                class="group inline-flex items-center rounded-md border border-n-border transition-colors hover:bg-n-hover"
               >
-                <span class="h-2 w-2 rounded-sm" :style="{ backgroundColor: b.color }"></span>
-                {{ b.shortLabel }}
-                <span class="n-mono hidden text-[11px] text-n-faint group-hover:inline">{{
-                  b.shape
-                }}</span>
-              </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 px-2 py-1 text-[13px] text-n-text"
+                  :title="b.shape"
+                  @click="store.selectBlock(b.id)"
+                  @mouseenter="store.hoverBlock(b.id)"
+                  @mouseleave="store.hoverBlock(null)"
+                >
+                  <span class="h-2 w-2 rounded-sm" :style="{ backgroundColor: b.color }"></span>
+                  {{ b.shortLabel }}
+                  <span class="n-mono hidden text-[11px] text-n-faint group-hover:inline">{{
+                    b.shape
+                  }}</span>
+                </button>
+                <button
+                  v-if="b.detailedSpec"
+                  type="button"
+                  class="flex h-full items-center border-l border-n-border px-1.5 text-n-muted transition-colors hover:text-n-text"
+                  :class="store.isBlockExpanded(b.id) && 'bg-n-active text-n-text'"
+                  :title="
+                    store.isBlockExpanded(b.id)
+                      ? `Simplify ${b.shortLabel}`
+                      : `Expand ${b.shortLabel} internals in 3D`
+                  "
+                  :aria-label="
+                    store.isBlockExpanded(b.id)
+                      ? `Simplify ${b.shortLabel}`
+                      : `Expand ${b.shortLabel} internals`
+                  "
+                  @click.stop="store.toggleBlockExpanded(b.id)"
+                >
+                  <span
+                    :class="store.isBlockExpanded(b.id) ? 'i-lucide-cpu' : 'i-lucide-layers'"
+                    class="h-3.5 w-3.5"
+                  ></span>
+                </button>
+              </div>
             </div>
           </template>
         </template>

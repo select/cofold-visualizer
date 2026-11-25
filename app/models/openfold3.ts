@@ -111,6 +111,13 @@ export const openfold3Model: FoldingModelSpec = {
         c_atom: 128,
         c_atom_pair: 16,
       },
+      detailedSpec: {
+        kind: 'multihead-attn',
+        heads: 4,
+        dHead: 32,
+        normType: 'LayerNorm',
+        subStages: ['LN', '4× Q/K/V (32×128)', 'Attn + AtomPair Bias', 'Proj + SwiGLU'],
+      },
     },
     {
       id: 's-input',
@@ -238,6 +245,13 @@ export const openfold3Model: FoldingModelSpec = {
         tri_attn_heads: '4 × 16',
         transition: 'SwiGLU',
       },
+      detailedSpec: {
+        kind: 'pair-stack',
+        heads: 4,
+        dHead: 16,
+        normType: 'LayerNorm',
+        subStages: ['TriMul Out (64)', 'TriMul In (64)', '4× TriAttn Start/End', 'SwiGLU'],
+      },
     },
     {
       id: 'msa-embedder',
@@ -292,6 +306,13 @@ export const openfold3Model: FoldingModelSpec = {
         pwa_heads: '8 × 8',
         pair_tri_attn: '4 × 32',
       },
+      detailedSpec: {
+        kind: 'msa-block',
+        heads: 8,
+        dHead: 8,
+        normType: 'LayerNorm',
+        subStages: ['OPM (32) → z', '8× Pair-Weighted Avg', 'MSA SwiGLU', 'Pair TriMul/TriAttn'],
+      },
     },
     {
       id: 'pairformer-pair',
@@ -321,6 +342,19 @@ export const openfold3Model: FoldingModelSpec = {
         tri_attn_heads: '4 × 32',
         transition: 'SwiGLU (4×)',
       },
+      detailedSpec: {
+        kind: 'pair-stack',
+        heads: 4,
+        dHead: 32,
+        normType: 'LayerNorm',
+        subStages: [
+          'TriMul Out (128)',
+          'TriMul In (128)',
+          '4× TriAttn Start',
+          '4× TriAttn End',
+          'SwiGLU (4×)',
+        ],
+      },
     },
     {
       id: 'pairformer-single',
@@ -349,6 +383,19 @@ export const openfold3Model: FoldingModelSpec = {
         heads: '16 × 24',
         transition: 'SwiGLU (4×)',
       },
+      detailedSpec: {
+        kind: 'multihead-attn',
+        heads: 16,
+        dHead: 24,
+        normType: 'LayerNorm',
+        subStages: [
+          'LayerNorm (γ,β)',
+          '16× Q/K/V',
+          'Attn (QKᵀ + b_ij)',
+          'Softmax → V Out',
+          'Proj + SwiGLU',
+        ],
+      },
     },
     {
       id: 'diffusion-conditioning',
@@ -374,6 +421,11 @@ export const openfold3Model: FoldingModelSpec = {
         c_fourier: 256,
         sigma_data: 16,
         conditioning: 'AdaLN + Pair',
+      },
+      detailedSpec: {
+        kind: 'conditioning',
+        normType: 'AdaLN',
+        subStages: ['Fourier Noise (256)', 'RelPos + Trunk', 'AdaLN γ, β Proj'],
       },
     },
     {
@@ -404,6 +456,13 @@ export const openfold3Model: FoldingModelSpec = {
         c_token_diffusion: 768,
         local_window: '32 × 128',
       },
+      detailedSpec: {
+        kind: 'multihead-attn',
+        heads: 4,
+        dHead: 32,
+        normType: 'AdaLN',
+        subStages: ['AdaLN (γ,β)', '4× Local Q/K/V', 'Attn + Pair Bias', 'Atom→Token Pool'],
+      },
     },
     {
       id: 'diffusion-transformer',
@@ -432,6 +491,13 @@ export const openfold3Model: FoldingModelSpec = {
         heads: '16 × 48',
         conditioning: 'AdaLN + Pair Bias',
       },
+      detailedSpec: {
+        kind: 'multihead-attn',
+        heads: 16,
+        dHead: 48,
+        normType: 'AdaLN',
+        subStages: ['AdaLN (σ→γ,β)', '16× Q/K/V (d=48)', 'Attn + Pair Bias', 'Gated Proj + SwiGLU'],
+      },
     },
     {
       id: 'atom-attn-decoder',
@@ -458,6 +524,13 @@ export const openfold3Model: FoldingModelSpec = {
         blocks: 3,
         heads: 4,
         c_atom: 128,
+      },
+      detailedSpec: {
+        kind: 'atom-dec',
+        heads: 4,
+        dHead: 32,
+        normType: 'AdaLN',
+        subStages: ['Token→Atom + q_skip', 'AdaLN', '4× Local Attn', 'Δr [N_atom, 3]'],
       },
     },
     {
@@ -514,6 +587,13 @@ export const openfold3Model: FoldingModelSpec = {
         dist_bins: 39,
         dist_range: '3.25–50.75 Å',
       },
+      detailedSpec: {
+        kind: 'pair-stack',
+        heads: 16,
+        dHead: 24,
+        normType: 'LayerNorm',
+        subStages: ['39 Dist Bins', 'TriMul (128)', 'TriAttn (4×32)', '16× Pair-Bias Attn'],
+      },
     },
     {
       id: 'confidence-outputs',
@@ -542,6 +622,17 @@ export const openfold3Model: FoldingModelSpec = {
         distogram_bins: '64 (2–22 Å)',
         exp_resolved_bins: 2,
         ranking: '0.2 pTM + 0.8 ipTM',
+      },
+      detailedSpec: {
+        kind: 'confidence-heads',
+        subStages: [
+          'pLDDT (50)',
+          'PAE (64×64)',
+          'PDE (64×64)',
+          'Distogram (64)',
+          'Exp.Res (2)',
+          'pTM / ipTM',
+        ],
       },
     },
   ],

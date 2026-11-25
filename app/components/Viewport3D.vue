@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { resolveAttentionContext } from '~/engine/DetailedAttentionView'
 import { SceneEngine } from '~/engine/SceneEngine'
 import { useVisualizerStore } from '~/stores/useVisualizerStore'
 
@@ -41,6 +40,9 @@ onMounted(() => {
     engine = new SceneEngine(el, {
       onSelectBlock: blockId => store.selectBlock(blockId),
       onHoverBlock: blockId => store.hoverBlock(blockId),
+      onDoubleClickBlock: blockId => {
+        if (blockId) store.toggleBlockExpanded(blockId)
+      },
     })
   } catch (err) {
     webglError.value =
@@ -55,13 +57,8 @@ onMounted(() => {
   engine.setPairformerBlock(store.pairformerBlock)
   engine.setDiffusionStep(store.diffusionStep)
   engine.setSelectedBlock(store.selectedBlockId)
+  engine.setExpandedBlocks(store.expandedBlockIds)
   syncStepCameraAndFocus()
-  if (store.detailLevel === 'detailed') {
-    engine.setDetailLevel(
-      'detailed',
-      resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
-    )
-  }
 
   resizeObserver = new ResizeObserver(() => {
     engine?.resize()
@@ -80,59 +77,29 @@ watch(
 watch(
   () => store.activeStep,
   () => {
-    if (store.detailLevel === 'detailed') {
-      engine?.setDetailLevel(
-        'detailed',
-        resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
-      )
-    } else {
-      syncStepCameraAndFocus()
-    }
+    syncStepCameraAndFocus()
   }
 )
 
 watch(
   () => store.cameraResetNonce,
   () => {
-    if (store.detailLevel === 'detailed') {
-      engine?.setDetailLevel(
-        'detailed',
-        resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
-      )
-    } else {
-      syncStepCameraAndFocus()
-    }
+    syncStepCameraAndFocus()
   }
 )
 
 watch(
-  () => store.detailLevel,
-  level => {
-    if (!engine) return
-    if (level === 'detailed') {
-      engine.setDetailLevel(
-        'detailed',
-        resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
-      )
-    } else {
-      engine.setDetailLevel('simplified')
-      if (store.selectedBlockId) {
-        engine.focusBlock(store.selectedBlockId)
-      } else {
-        syncStepCameraAndFocus()
-      }
-    }
-  }
+  () => store.expandedBlockIds,
+  ids => {
+    engine?.setExpandedBlocks(ids)
+  },
+  { deep: true }
 )
 
 watch(
   () => store.selectedBlockId,
   id => {
     engine?.setSelectedBlock(id)
-    if (store.detailLevel === 'detailed') {
-      engine?.setDetailLevel('detailed', resolveAttentionContext(store.activeStep?.id, id))
-      return
-    }
     if (id) {
       engine?.focusBlock(id)
     } else if (store.activeStep) {

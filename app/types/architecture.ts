@@ -24,6 +24,22 @@ export interface CodeRef {
   symbol?: string
 }
 
+export type DetailedKind =
+  | 'multihead-attn'
+  | 'pair-stack'
+  | 'msa-block'
+  | 'conditioning'
+  | 'atom-dec'
+  | 'confidence-heads'
+
+export interface DetailedBlockSpec {
+  kind: DetailedKind
+  heads?: number
+  dHead?: number
+  normType?: 'LayerNorm' | 'AdaLN'
+  subStages: string[]
+}
+
 export interface TensorBlock3D {
   id: string
   label: string
@@ -41,6 +57,7 @@ export interface TensorBlock3D {
   formula?: string
   codeRef?: CodeRef
   params?: Record<string, string | number>
+  detailedSpec?: DetailedBlockSpec
 }
 
 export type DataFlowEdgeKind = 'forward' | 'residual' | 'recycle' | 'conditioning' | 'pair-bias'

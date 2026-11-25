@@ -84,17 +84,56 @@ describe('useVisualizerStore', () => {
     expect(store.cameraResetNonce).toBe(prevNonce + 1)
   })
 
-  it('switches and toggles detailLevel between simplified and detailed', () => {
+  it('switches and toggles per-block expansion and detailLevel (simplified | mixed | detailed)', () => {
     const store = useVisualizerStore()
     expect(store.detailLevel).toBe('simplified')
+    expect(store.expandedBlockIds).toEqual([])
+    expect(store.expandedCount).toBe(0)
+    expect(store.expandableBlockIds).toHaveLength(11)
 
+    // Non-expandable block should be ignored
+    store.toggleBlockExpanded('input-features')
+    expect(store.expandedCount).toBe(0)
+
+    // Expand one block -> mixed
+    store.toggleBlockExpanded('pairformer-single')
+    expect(store.isBlockExpanded('pairformer-single')).toBe(true)
+    expect(store.expandedCount).toBe(1)
+    expect(store.detailLevel).toBe('mixed')
+
+    // Expand another block -> still mixed
+    store.setBlockExpanded('atom-attn-encoder-init', true)
+    expect(store.isBlockExpanded('atom-attn-encoder-init')).toBe(true)
+    expect(store.expandedCount).toBe(2)
+    expect(store.detailLevel).toBe('mixed')
+
+    // Expand all -> detailed
+    store.expandAllBlocks()
+    expect(store.expandedCount).toBe(11)
+    expect(store.detailLevel).toBe('detailed')
+
+    // Toggle one off -> mixed
+    store.toggleBlockExpanded('msa-stack')
+    expect(store.isBlockExpanded('msa-stack')).toBe(false)
+    expect(store.expandedCount).toBe(10)
+    expect(store.detailLevel).toBe('mixed')
+
+    // Collapse all -> simplified
+    store.collapseAllBlocks()
+    expect(store.expandedCount).toBe(0)
+    expect(store.detailLevel).toBe('simplified')
+
+    // setDetailLevel / toggleDetailLevel delegate to expandAllBlocks / collapseAllBlocks
     store.setDetailLevel('detailed')
     expect(store.detailLevel).toBe('detailed')
+    expect(store.expandedCount).toBe(11)
 
     store.toggleDetailLevel()
     expect(store.detailLevel).toBe('simplified')
+    expect(store.expandedCount).toBe(0)
 
     store.toggleDetailLevel()
     expect(store.detailLevel).toBe('detailed')
+    expect(store.expandedCount).toBe(11)
   })
 })

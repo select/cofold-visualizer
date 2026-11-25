@@ -56,6 +56,29 @@ describe('OpenFold3 architecture specification', () => {
     expect(byId.get('denoised-coords')?.params?.steps).toBe(200)
     expect(byId.get('aux-pairformer')?.stackCount).toBe(4)
   })
+
+  it('defines detailedSpec on all 11 expandable OpenFold3 blocks', () => {
+    const expectedIds = [
+      'atom-attn-encoder-init',
+      'template-embedder',
+      'msa-stack',
+      'pairformer-pair',
+      'pairformer-single',
+      'diffusion-conditioning',
+      'atom-attn-encoder-diff',
+      'diffusion-transformer',
+      'atom-attn-decoder',
+      'aux-pairformer',
+      'confidence-outputs',
+    ]
+    const detailedBlocks = openfold3Model.blocks.filter(b => Boolean(b.detailedSpec))
+    expect(detailedBlocks).toHaveLength(11)
+    expect(detailedBlocks.map(b => b.id)).toEqual(expectedIds)
+
+    for (const block of detailedBlocks) {
+      expect(block.detailedSpec?.subStages.length).toBeGreaterThanOrEqual(3)
+    }
+  })
 })
 
 describe('Model registry', () => {

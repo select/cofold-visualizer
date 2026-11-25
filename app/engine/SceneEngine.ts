@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { DataFlowEdge, FoldingModelSpec, TensorBlock3D } from '~/types/architecture'
-import { DetailedAttentionView, type AttentionContextKey } from './DetailedAttentionView'
+import { buildInPlaceDetailedBlock, type DetailedBlockVisual } from './InPlaceDetailBuilder'
 import { MoleculeCloud } from './moleculeCloud'
 import {
   createAxisTagSprite,
@@ -24,11 +24,14 @@ const OVERVIEW_LANDMARK_IDS = new Set([
 export interface SceneEngineCallbacks {
   onSelectBlock?: (blockId: string | null) => void
   onHoverBlock?: (blockId: string | null) => void
+  onDoubleClickBlock?: (blockId: string | null) => void
 }
 
 interface BlockVisual {
   spec: TensorBlock3D
   group: THREE.Group
+  simplifiedGroup: THREE.Group
+  detailedVisual: DetailedBlockVisual | null
   hitMesh: THREE.Mesh
   sliceMeshes: THREE.Mesh[]
   sliceMaterials: THREE.MeshStandardMaterial[]
@@ -71,9 +74,7 @@ export class SceneEngine {
   private gridHelper: THREE.GridHelper
 
   private readonly modelGroup = new THREE.Group()
-  private detailedView: DetailedAttentionView | null = null
-  private detailLevel: 'simplified' | 'detailed' = 'simplified'
-  private detailedContext: AttentionContextKey = 'pairformer'
+  private expandedBlockIds = new Set<string>()
   private readonly blockVisuals = new Map<string, BlockVisual>()
   private readonly edgeVisuals: EdgeVisual[] = []
   private readonly hitTargets: THREE.Object3D[] = []
@@ -160,6 +161,7 @@ export class SceneEngine {
     dom.addEventListener('pointerdown', this.handlePointerDown)
     dom.addEventListener('pointerup', this.handlePointerUp)
     dom.addEventListener('pointerleave', this.handlePointerLeave)
+    dom.addEventListener('dblclick', this.handleDoubleClick)
 
     this.lastTime = performance.now()
     this.animate()
@@ -194,33 +196,11 @@ export class SceneEngine {
     if (this.currentModel) {
       this.setModel(this.currentModel)
     }
-    if (this.detailedView) {
-      this.detailedView.rebuild(this.detailedContext, this.isDark)
-    }
   }
 
-  public setDetailLevel(
-    level: 'simplified' | 'detailed',
-    contextKey: AttentionContextKey = 'pairformer'
-  ) {
-    this.detailLevel = level
-    this.detailedContext = contextKey
-    if (level === 'detailed') {
-      this.modelGroup.visible = false
-      if (!this.detailedView) {
-        this.detailedView = new DetailedAttentionView(contextKey, this.isDark)
-        this.scene.add(this.detailedView.group)
-      } else {
-        this.detailedView.rebuild(contextKey, this.isDark)
-        this.detailedView.group.visible = true
-      }
-      this.flyToCamera([14.0, 7.5, 23.0], [0.5, -1.2, 0.0])
-    } else {
-      this.modelGroup.visible = true
-      if (this.detailedView) {
-        this.detailedView.group.visible = false
-      }
-    }
+  public setExpandedBlocks(ids: string[]) {
+    this.expandedBlockIds = new Set(ids)
+    this.refreshVisualStates()
   }
 
   private applyThemeColors() {
@@ -333,6 +313,9 @@ export class SceneEngine {
   }
 
   private clearModelScene() {
+    for (const visual of this.blockVisuals.values()) {
+      visual.detailedVisual?.dispose()
+    }
     for (const ev of this.edgeVisuals) {
       ev.ribbonMesh.geometry.dispose()
       ev.outlineLine.geometry.dispose()
@@ -365,6 +348,9 @@ export class SceneEngine {
     const group = new THREE.Group()
     group.position.set(block.position[0], block.position[1], block.position[2])
 
+    const simplifiedGroup = new THREE.Group()
+    group.add(simplifiedGroup)
+
     const [sx, sy, sz] = block.size
     const baseColor = new THREE.Color(block.color)
 
@@ -393,12 +379,12 @@ export class SceneEngine {
       })
       this.disposableMaterials.push(lineMat)
       const wire = new THREE.LineSegments(edgesGeo, lineMat)
-      group.add(wire)
+      simplifiedGroup.add(wire)
       edgeLines.push(wire)
 
       this.moleculeCloud = new MoleculeCloud()
       this.moleculeCloud.setDiffusionStep(this.diffusionStep)
-      group.add(this.moleculeCloud.group)
+      simplifiedGroup.add(this.moleculeCloud.group)
     } else {
       const tex = createTensorMatrixTexture(block.matrixStyle, block.color, this.isDark)
       this.disposableTextures.push(tex)
@@ -427,7 +413,7 @@ export class SceneEngine {
 
         const mesh = new THREE.Mesh(boxGeo, mat)
         mesh.position.x = startX + i * stepX
-        group.add(mesh)
+        simplifiedGroup.add(mesh)
         sliceMeshes.push(mesh)
         sliceMaterials.push(mat)
 
@@ -511,12 +497,22 @@ export class SceneEngine {
       sweepMesh = new THREE.Mesh(sweepGeo, sweepMat)
       sweepMesh.renderOrder = 5
       sweepMesh.visible = false
-      group.add(sweepMesh)
+      simplifiedGroup.add(sweepMesh)
+    }
+
+    const detailedVisual = buildInPlaceDetailedBlock(block, this.isDark)
+    if (detailedVisual) {
+      const isExpanded = this.expandedBlockIds.has(block.id)
+      detailedVisual.group.visible = isExpanded
+      simplifiedGroup.visible = !isExpanded
+      group.add(detailedVisual.group)
     }
 
     return {
       spec: block,
       group,
+      simplifiedGroup,
+      detailedVisual,
       hitMesh,
       sliceMeshes,
       sliceMaterials,
@@ -997,6 +993,16 @@ export class SceneEngine {
       if (visual.sweepMesh) {
         visual.sweepMesh.visible = this.isFlowPlaying && (isSelected || isFocused)
       }
+
+      if (visual.detailedVisual) {
+        const isExpanded = this.expandedBlockIds.has(id)
+        visual.simplifiedGroup.visible = !isExpanded
+        visual.detailedVisual.group.visible = isExpanded
+        if (isExpanded) {
+          visual.detailedVisual.setHighlighted(isSelected, isHovered, isFocused, this.isDark)
+          visual.detailedVisual.setLabelsVisible(isSelected || isHovered)
+        }
+      }
     }
 
     this.updateDynamicPairBiasEdge()
@@ -1092,6 +1098,19 @@ export class SceneEngine {
     }
   }
 
+  private readonly handleDoubleClick = (e: MouseEvent) => {
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+
+    this.raycaster.setFromCamera(this.pointer, this.camera)
+    const hits = this.raycaster.intersectObjects(this.hitTargets, false)
+    const hitId = (hits[0]?.object.userData?.blockId as string | undefined) ?? null
+    if (hitId) {
+      this.callbacks.onDoubleClickBlock?.(hitId)
+    }
+  }
+
   private readonly animate = () => {
     if (this.disposed) return
     this.rafId = requestAnimationFrame(this.animate)
@@ -1114,17 +1133,19 @@ export class SceneEngine {
 
     this.controls.update()
 
-    if (this.detailLevel === 'detailed' && this.detailedView) {
-      this.detailedView.update(dt, this.isFlowPlaying)
-      this.renderer.render(this.scene, this.camera)
-      return
-    }
-
     this.moleculeCloud?.update(dt)
 
     const hasFocus = this.focusBlockIds.size > 0
     const isOverviewMode = !hasFocus && this.selectedBlockId === null
     for (const [id, visual] of this.blockVisuals) {
+      if (visual.detailedVisual && visual.detailedVisual.group.visible) {
+        visual.detailedVisual.update(dt, this.isFlowPlaying)
+        visual.group.getWorldPosition(this.scratchVec)
+        const camDist = this.camera.position.distanceTo(this.scratchVec)
+        visual.detailedVisual.setLabelsVisible(
+          id === this.selectedBlockId || id === this.hoveredBlockId || camDist < 16
+        )
+      }
       const isFocused = !hasFocus || this.focusBlockIds.has(id)
       const isActiveLabel = id === this.selectedBlockId || id === this.hoveredBlockId || isFocused
       const wantsVisible = isOverviewMode
@@ -1295,15 +1316,12 @@ export class SceneEngine {
     dom.removeEventListener('pointerdown', this.handlePointerDown)
     dom.removeEventListener('pointerup', this.handlePointerUp)
     dom.removeEventListener('pointerleave', this.handlePointerLeave)
+    dom.removeEventListener('dblclick', this.handleDoubleClick)
 
     this.controls.removeEventListener('start', this.handleControlsStart)
     this.controls.dispose()
 
     this.clearModelScene()
-    if (this.detailedView) {
-      this.detailedView.dispose()
-      this.detailedView = null
-    }
     this.beadGeo.dispose()
     this.gridHelper.dispose()
     this.renderer.dispose()

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ATTENTION_PRESETS, resolveAttentionContext } from '~/engine/DetailedAttentionView'
 import { useVisualizerStore } from '~/stores/useVisualizerStore'
 import type { InteractiveHint } from '~/types/architecture'
 import { diffusionSigma, formatSigma } from '~/utils/diffusion'
@@ -86,17 +85,12 @@ function onSlider(event: Event) {
 }
 
 const hovered = computed(() =>
-  store.detailLevel === 'simplified' &&
-  store.hoveredBlock &&
-  store.hoveredBlock.id !== store.selectedBlockId
-    ? store.hoveredBlock
-    : null
+  store.hoveredBlock && store.hoveredBlock.id !== store.selectedBlockId ? store.hoveredBlock : null
 )
 
-const detailedPreset = computed(() => {
-  const key = resolveAttentionContext(store.activeStep?.id, store.selectedBlockId)
-  return ATTENTION_PRESETS[key]
-})
+const selectedExpandable = computed(() =>
+  store.selectedBlock?.detailedSpec ? store.selectedBlock : null
+)
 
 const tooltipStyle = computed(() => {
   const ptr = store.hoverPointer
@@ -117,9 +111,9 @@ const tooltipStyle = computed(() => {
 
 <template>
   <div ref="hudRef" class="pointer-events-none absolute inset-0 z-10">
-    <!-- Detailed attention heads badge -->
+    <!-- Selected expandable block action pill -->
     <div
-      v-if="store.detailLevel === 'detailed'"
+      v-if="selectedExpandable"
       class="pointer-events-none absolute inset-x-0 top-3 flex justify-center px-3"
     >
       <div
@@ -127,17 +121,27 @@ const tooltipStyle = computed(() => {
       >
         <span
           class="h-2 w-2 shrink-0 rounded-full"
-          :style="{ backgroundColor: detailedPreset.accentColor }"
+          :style="{ backgroundColor: selectedExpandable.color }"
         ></span>
-        <span class="truncate font-medium text-n-text">{{ detailedPreset.badgeText }}</span>
+        <span class="truncate font-medium text-n-text">{{ selectedExpandable.shortLabel }}</span>
         <div class="mx-0.5 h-3.5 w-px shrink-0 bg-n-border"></div>
         <button
           type="button"
-          class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11.5px] font-medium text-n-muted transition-colors hover:bg-n-hover hover:text-n-text"
-          @click="store.setDetailLevel('simplified')"
+          class="inline-flex shrink-0 items-center gap-1.5 rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors"
+          :class="
+            store.isBlockExpanded(selectedExpandable.id)
+              ? 'bg-n-active text-n-text hover:bg-n-hover'
+              : 'text-n-muted hover:bg-n-hover hover:text-n-text'
+          "
+          @click="store.toggleBlockExpanded(selectedExpandable.id)"
         >
-          <span class="i-lucide-layers h-3 w-3"></span>
-          Back to Simplified
+          <span
+            :class="
+              store.isBlockExpanded(selectedExpandable.id) ? 'i-lucide-layers' : 'i-lucide-cpu'
+            "
+            class="h-3.5 w-3.5"
+          ></span>
+          {{ store.isBlockExpanded(selectedExpandable.id) ? 'Simplify Block' : 'Expand Internals' }}
         </button>
       </div>
     </div>
@@ -162,7 +166,12 @@ const tooltipStyle = computed(() => {
           <code class="n-code !text-[11.5px]">{{ hovered.shape }}</code>
         </div>
         <p class="mt-1.5 flex items-center gap-1 pl-4 text-[11px] text-n-muted">
-          <span class="i-lucide-mouse-pointer-click h-3 w-3"></span>Click to inspect
+          <span class="i-lucide-mouse-pointer-click h-3 w-3"></span>
+          {{
+            hovered.detailedSpec
+              ? 'Click to inspect · Double-click to toggle internals'
+              : 'Click to inspect'
+          }}
         </p>
       </div>
     </Transition>
