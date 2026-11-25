@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { DataFlowEdge, FoldingModelSpec, TensorBlock3D } from '~/types/architecture'
 import { MoleculeCloud } from './moleculeCloud'
 import {
+  createAxisTagSprite,
   createEdgeLabelSprite,
   createLabelSprite,
   createStageHeaderTexture,
@@ -22,6 +23,10 @@ interface BlockVisual {
   sliceMaterials: THREE.MeshStandardMaterial[]
   edgeLines: THREE.LineSegments[]
   labelSprite: THREE.Sprite
+  axisTagSprites: THREE.Sprite[]
+  sweepMesh: THREE.Mesh | null
+  sweepMat: THREE.MeshBasicMaterial | null
+  sweepPhaseOffset: number
   baseColor: THREE.Color
 }
 
@@ -88,6 +93,7 @@ export class SceneEngine {
   private readonly beadGeo = new THREE.SphereGeometry(0.11, 10, 10)
   private readonly arrowGeo = new THREE.ConeGeometry(0.16, 0.42, 8)
   private readonly upVec = new THREE.Vector3(0, 1, 0)
+  private readonly scratchVec = new THREE.Vector3()
   private readonly disposableTextures: THREE.Texture[] = []
   private readonly disposableGeometries: THREE.BufferGeometry[] = []
   private readonly disposableMaterials: THREE.Material[] = []
@@ -182,7 +188,7 @@ export class SceneEngine {
     this.scene.background = new THREE.Color(bgHex)
     this.scene.fog = new THREE.Fog(bgHex, 100, 230)
 
-    this.hemiLight.intensity = this.isDark ? 0.72 : 0.95
+    this.hemiLight.intensity = 0.95
     this.hemiLight.groundColor.setHex(this.isDark ? 0x18181b : 0xcbd5e1)
     this.keyLight.intensity = this.isDark ? 1.25 : 1.1
 
@@ -396,8 +402,51 @@ export class SceneEngine {
       this.disposableTextures.push(labelSprite.material.map)
     }
     this.disposableMaterials.push(labelSprite.material)
-    labelSprite.position.set(0, sy / 2 + 0.56, 0)
+    const labelExtraY =
+      block.id === 'denoised-coords' || block.id === 'pairformer-pair' ? 1.35 : 0.98
+    labelSprite.position.set(0, sy / 2 + labelExtraY, 0)
     group.add(labelSprite)
+
+    const axisTagSprites: THREE.Sprite[] = []
+    const tagOffsets: Array<[number, number, number]> = [
+      [0, -sy / 2 - 0.36, sz / 2 + 0.25],
+      [sx / 2 + 0.55, 0, sz / 2 + 0.25],
+      [-sx / 2 - 0.55, -sy / 2 - 0.18, 0],
+    ]
+    const dimsToTag = block.dims.slice(0, 3)
+    dimsToTag.forEach((dimText, idx) => {
+      const tagSprite = createAxisTagSprite(dimText, this.isDark ? 'dark' : 'light')
+      if (tagSprite.material.map) {
+        this.disposableTextures.push(tagSprite.material.map)
+      }
+      this.disposableMaterials.push(tagSprite.material)
+      const [ox, oy, oz] = tagOffsets[idx]!
+      tagSprite.position.set(ox, oy, oz)
+      group.add(tagSprite)
+      axisTagSprites.push(tagSprite)
+    })
+
+    let sweepMesh: THREE.Mesh | null = null
+    let sweepMat: THREE.MeshBasicMaterial | null = null
+    if (
+      block.matrixStyle !== 'point-cloud' &&
+      (block.category === 'pair' || block.category === 'msa' || block.category === 'diffusion')
+    ) {
+      const sweepGeo = new THREE.BoxGeometry(sx * 0.99, Math.max(0.14, sy * 0.11), sz + 0.06)
+      this.disposableGeometries.push(sweepGeo)
+      sweepMat = new THREE.MeshBasicMaterial({
+        color: baseColor,
+        transparent: true,
+        opacity: 0.22,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+      this.disposableMaterials.push(sweepMat)
+      sweepMesh = new THREE.Mesh(sweepGeo, sweepMat)
+      sweepMesh.renderOrder = 5
+      sweepMesh.visible = false
+      group.add(sweepMesh)
+    }
 
     return {
       spec: block,
@@ -407,6 +456,10 @@ export class SceneEngine {
       sliceMaterials,
       edgeLines,
       labelSprite,
+      axisTagSprites,
+      sweepMesh,
+      sweepMat,
+      sweepPhaseOffset: this.blockVisuals.size * 0.23,
       baseColor,
     }
   }
@@ -581,6 +634,7 @@ export class SceneEngine {
 
   public setFlowPlaying(playing: boolean) {
     this.isFlowPlaying = playing
+    this.refreshVisualStates()
   }
 
   public setRecycleCycle(cycle: number) {
@@ -602,7 +656,7 @@ export class SceneEngine {
   }
 
   private applyAspectFraming() {
-    const aspectScale = this.camera.aspect < 1.25 ? 1.25 / Math.max(0.55, this.camera.aspect) : 1
+    const aspectScale = this.camera.aspect < 1.45 ? 1.45 / Math.max(0.55, this.camera.aspect) : 1
     const offset = this.baseCamPos.clone().sub(this.baseTarget).multiplyScalar(aspectScale)
     this.desiredTarget.copy(this.baseTarget)
     this.desiredCamPos.copy(this.baseTarget).add(offset)
@@ -613,6 +667,13 @@ export class SceneEngine {
     this.baseTarget.set(target[0], target[1], target[2])
     this.applyAspectFraming()
     this.cameraFlying = true
+  }
+
+  public focusBlock(blockId: string) {
+    const visual = this.blockVisuals.get(blockId)
+    if (!visual) return
+    const { x: bx, y: by, z: bz } = visual.group.position
+    this.flyToCamera([bx + 3.5, by + 4.5, bz + 13.5], [bx, by, bz])
   }
 
   private updateDynamicPairBiasEdge() {
@@ -660,14 +721,17 @@ export class SceneEngine {
 
   private refreshVisualStates() {
     const hasFocus = this.focusBlockIds.size > 0
-    const unfocusedOpacity = this.isDark ? 0.5 : 0.28
-    const unfocusedLineOpacity = this.isDark ? 0.4 : 0.16
-    const unfocusedLabelOpacity = this.isDark ? 0.6 : 0.25
+    const unfocusedOpacity = this.isDark ? 0.45 : 0.14
+    const unfocusedLineOpacity = this.isDark ? 0.26 : 0.12
+    const focusedLineOpacity = this.isDark ? 0.36 : 0.55
+    const selectedLineOpacity = this.isDark ? 0.78 : 0.95
+    const unfocusedLabelOpacity = this.isDark ? 0.35 : 0.08
 
     for (const [id, visual] of this.blockVisuals) {
       const isSelected = id === this.selectedBlockId
       const isHovered = id === this.hoveredBlockId
       const isFocused = !hasFocus || this.focusBlockIds.has(id)
+      const isActiveLabel = isSelected || isHovered || isFocused
 
       const targetOpacity = isSelected || isHovered ? 1.0 : isFocused ? 0.96 : unfocusedOpacity
       const scaleBoost = isSelected ? 1.04 : isHovered ? 1.025 : 1.0
@@ -715,11 +779,26 @@ export class SceneEngine {
 
       visual.edgeLines.forEach(line => {
         const lm = line.material as THREE.LineBasicMaterial
-        lm.opacity = isSelected || isHovered ? 0.95 : isFocused ? 0.55 : unfocusedLineOpacity
+        lm.opacity =
+          isSelected || isHovered
+            ? selectedLineOpacity
+            : isFocused
+              ? focusedLineOpacity
+              : unfocusedLineOpacity
       })
 
-      visual.labelSprite.material.opacity =
-        isSelected || isHovered || isFocused ? 1.0 : unfocusedLabelOpacity
+      visual.labelSprite.material.opacity = isActiveLabel ? 1.0 : unfocusedLabelOpacity
+      visual.labelSprite.renderOrder = isActiveLabel ? 20 : 0
+      visual.labelSprite.material.depthTest = !isActiveLabel
+
+      const showAxisTags = isSelected || (hasFocus && this.focusBlockIds.has(id))
+      visual.axisTagSprites.forEach(tag => {
+        tag.visible = showAxisTags
+      })
+
+      if (visual.sweepMesh) {
+        visual.sweepMesh.visible = this.isFlowPlaying && (isSelected || isFocused)
+      }
     }
 
     this.updateDynamicPairBiasEdge()
@@ -733,7 +812,10 @@ export class SceneEngine {
       ev.arrowMat.opacity = highlighted ? 0.92 : this.isDark ? 0.28 : 0.16
       ev.arrowMat.emissiveIntensity = highlighted ? 0.45 : 0.05
       if (ev.labelSprite) {
-        ev.labelSprite.visible = hasHighlightedEdges && highlighted
+        const showEdgeLabel = hasHighlightedEdges && highlighted
+        ev.labelSprite.visible = showEdgeLabel
+        ev.labelSprite.renderOrder = showEdgeLabel ? 22 : 0
+        ev.labelSprite.material.depthTest = !showEdgeLabel
       }
       ev.beads.forEach(b => {
         b.visible = highlighted
@@ -809,6 +891,27 @@ export class SceneEngine {
 
     this.controls.update()
     this.moleculeCloud?.update(dt)
+
+    const hasFocus = this.focusBlockIds.size > 0
+    for (const [id, visual] of this.blockVisuals) {
+      const isFocused = !hasFocus || this.focusBlockIds.has(id)
+      const isActiveLabel = id === this.selectedBlockId || id === this.hoveredBlockId || isFocused
+      if (isActiveLabel) {
+        visual.labelSprite.getWorldPosition(this.scratchVec)
+        const dist = this.camera.position.distanceTo(this.scratchVec)
+        const s = THREE.MathUtils.clamp(dist * 0.082, 2.5, 5.4)
+        visual.labelSprite.scale.set(s, s * 0.24, 1)
+      } else {
+        visual.labelSprite.scale.set(2.4, 2.4 * 0.24, 1)
+      }
+
+      if (visual.sweepMesh && visual.sweepMat && visual.sweepMesh.visible) {
+        const sy = visual.spec.size[1]
+        const phase = (now * 0.00065 + visual.sweepPhaseOffset) % 1
+        visual.sweepMesh.position.y = -sy * 0.42 + phase * (sy * 0.84)
+        visual.sweepMat.opacity = Math.sin(phase * Math.PI) * (this.isDark ? 0.26 : 0.2)
+      }
+    }
 
     if (this.recyclePulseBoost > 0) {
       this.recyclePulseBoost = Math.max(0, this.recyclePulseBoost - dt * 1.4)

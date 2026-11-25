@@ -83,7 +83,9 @@ function onSlider(event: Event) {
   else store.setDiffusionStep(value)
 }
 
-const hovered = computed(() => store.hoveredBlock)
+const hovered = computed(() =>
+  store.hoveredBlock && store.hoveredBlock.id !== store.selectedBlockId ? store.hoveredBlock : null
+)
 </script>
 
 <template>

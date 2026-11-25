@@ -651,10 +651,10 @@ export const openfold3Model: FoldingModelSpec = {
       kind: 'recycle',
       label: 's_prev (10 cycles)',
       controlPoints: [
-        [8.5, 6.8, -2.2],
-        [6.5, 8.4, -2.2],
-        [-11.8, 8.4, -2.2],
-        [-13.8, 6.8, -1.2],
+        [8.5, 6.2, -3.4],
+        [6.5, 9.0, -3.6],
+        [-11.8, 9.0, -3.6],
+        [-13.8, 6.2, -2.6],
       ],
     },
     {
@@ -664,10 +664,10 @@ export const openfold3Model: FoldingModelSpec = {
       kind: 'recycle',
       label: 'z_prev (10 cycles)',
       controlPoints: [
-        [8.5, 5.2, 4.2],
-        [6.5, 7.2, 4.2],
-        [-11.8, 7.2, 4.2],
-        [-13.8, 5.2, 1.8],
+        [8.5, 3.5, 4.8],
+        [6.5, 7.8, 5.0],
+        [-11.8, 7.8, 5.0],
+        [-13.8, 4.8, 2.8],
       ],
     },
     {
@@ -790,7 +790,7 @@ export const openfold3Model: FoldingModelSpec = {
       focusBlockIds: [],
       highlightEdgeIds: [],
       camera: {
-        position: [3.0, 22.0, 68.0],
+        position: [-6.0, 26.0, 62.0],
         target: [3.0, -0.5, 0.0],
       },
       interactiveHint: null,
@@ -1162,8 +1162,8 @@ export const openfold3Model: FoldingModelSpec = {
         'e-atom-dec-to-coords',
       ],
       camera: {
-        position: [29.8, 5.8, 25.5],
-        target: [29.5, 0.0, 1.2],
+        position: [31.0, 4.5, 25.5],
+        target: [30.5, -2.0, 1.0],
       },
       interactiveHint: 'diffusionStep',
     },

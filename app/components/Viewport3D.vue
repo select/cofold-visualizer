@@ -74,6 +74,11 @@ watch(
   () => store.selectedBlockId,
   id => {
     engine?.setSelectedBlock(id)
+    if (id) {
+      engine?.focusBlock(id)
+    } else if (store.activeStep) {
+      engine?.flyToCamera(store.activeStep.camera.position, store.activeStep.camera.target)
+    }
   }
 )
 
