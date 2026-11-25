@@ -103,6 +103,10 @@ export interface FoldingModelSpec {
   description: string
   repoUrl: string
   paperUrl: string
+  papers?: Array<{
+    label: string
+    url: string
+  }>
   tags: string[]
   stats: Array<{
     label: string

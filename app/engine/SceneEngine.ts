@@ -33,10 +33,10 @@ interface BlockVisual {
 interface EdgeVisual {
   spec: DataFlowEdge
   curve: THREE.CatmullRomCurve3
-  tube: THREE.Mesh
-  tubeMat: THREE.MeshStandardMaterial
-  arrows: THREE.Mesh[]
-  arrowMat: THREE.MeshStandardMaterial
+  ribbonMesh: THREE.Mesh
+  ribbonMat: THREE.MeshBasicMaterial
+  outlineLine: THREE.Line
+  outlineMat: THREE.LineBasicMaterial
   labelSprite: THREE.Sprite | null
   beads: THREE.Mesh[]
   beadOffsets: number[]
@@ -90,9 +90,7 @@ export class SceneEngine {
   private lastTime = performance.now()
   private disposed = false
 
-  private readonly beadGeo = new THREE.SphereGeometry(0.11, 10, 10)
-  private readonly arrowGeo = new THREE.ConeGeometry(0.16, 0.42, 8)
-  private readonly upVec = new THREE.Vector3(0, 1, 0)
+  private readonly beadGeo = new THREE.SphereGeometry(0.085, 8, 8)
   private readonly scratchVec = new THREE.Vector3()
   private readonly disposableTextures: THREE.Texture[] = []
   private readonly disposableGeometries: THREE.BufferGeometry[] = []
@@ -215,8 +213,8 @@ export class SceneEngine {
       const edgeVisual = this.buildEdgeVisual(edge)
       if (edgeVisual) {
         this.edgeVisuals.push(edgeVisual)
-        this.modelGroup.add(edgeVisual.tube)
-        edgeVisual.arrows.forEach(a => this.modelGroup.add(a))
+        this.modelGroup.add(edgeVisual.ribbonMesh)
+        this.modelGroup.add(edgeVisual.outlineLine)
         if (edgeVisual.labelSprite) {
           this.modelGroup.add(edgeVisual.labelSprite)
         }
@@ -291,6 +289,10 @@ export class SceneEngine {
   }
 
   private clearModelScene() {
+    for (const ev of this.edgeVisuals) {
+      ev.ribbonMesh.geometry.dispose()
+      ev.outlineLine.geometry.dispose()
+    }
     this.blockVisuals.clear()
     this.edgeVisuals.length = 0
     this.hitTargets.length = 0
@@ -511,11 +513,99 @@ export class SceneEngine {
     return new THREE.CatmullRomCurve3(pts)
   }
 
-  private orientArrowAt(arrow: THREE.Mesh, curve: THREE.CatmullRomCurve3, t: number) {
-    const pt = curve.getPointAt(t)
-    const tangent = curve.getTangentAt(t).normalize()
-    arrow.position.copy(pt)
-    arrow.quaternion.setFromUnitVectors(this.upVec, tangent)
+  private buildRibbonArrowGeometries(
+    curve: THREE.CatmullRomCurve3,
+    shaftWidth: number,
+    headWidth: number,
+    headLength: number,
+    segments = 32
+  ): { ribbonGeo: THREE.BufferGeometry; outlineGeo: THREE.BufferGeometry } {
+    const totalLen = Math.max(0.5, curve.getLength())
+    const effectiveHeadLen = Math.min(headLength, totalLen * 0.42)
+    const shaftEndFrac = Math.max(0.15, (totalLen - effectiveHeadLen) / totalLen)
+
+    const p0 = curve.getPointAt(0)
+    const p1 = curve.getPointAt(1)
+    const avgDir = p1.clone().sub(p0)
+    if (avgDir.lengthSq() > 1e-6) {
+      avgDir.normalize()
+    } else {
+      avgDir.set(1, 0, 0)
+    }
+    const refNormal =
+      Math.abs(avgDir.z) < 0.88 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0)
+
+    const sideAt = (t: number): THREE.Vector3 => {
+      const tan = curve.getTangentAt(t).normalize()
+      const s = new THREE.Vector3().crossVectors(tan, refNormal)
+      if (s.lengthSq() < 1e-6) {
+        s.set(1, 0, 0)
+      } else {
+        s.normalize()
+      }
+      return s
+    }
+
+    const positions: number[] = []
+    const indices: number[] = []
+    const leftPts: THREE.Vector3[] = []
+    const rightPts: THREE.Vector3[] = []
+
+    const halfShaft = shaftWidth / 2
+    for (let i = 0; i <= segments; i++) {
+      const t = (i / segments) * shaftEndFrac
+      const pt = curve.getPointAt(t)
+      const side = sideAt(t)
+      const left = pt.clone().addScaledVector(side, halfShaft)
+      const right = pt.clone().addScaledVector(side, -halfShaft)
+      leftPts.push(left)
+      rightPts.push(right)
+      positions.push(left.x, left.y, left.z, right.x, right.y, right.z)
+
+      if (i < segments) {
+        const b = i * 2
+        indices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2)
+      }
+    }
+
+    // Integrated flat triangular arrowhead
+    const headBase = curve.getPointAt(shaftEndFrac)
+    const headSide = sideAt(shaftEndFrac)
+    const halfHead = headWidth / 2
+    const headLeft = headBase.clone().addScaledVector(headSide, halfHead)
+    const headRight = headBase.clone().addScaledVector(headSide, -halfHead)
+    const tip = curve.getPointAt(1)
+
+    const headBaseIdx = positions.length / 3
+    positions.push(
+      headLeft.x,
+      headLeft.y,
+      headLeft.z,
+      headRight.x,
+      headRight.y,
+      headRight.z,
+      tip.x,
+      tip.y,
+      tip.z
+    )
+    indices.push(headBaseIdx, headBaseIdx + 1, headBaseIdx + 2)
+
+    const ribbonGeo = new THREE.BufferGeometry()
+    ribbonGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    ribbonGeo.setIndex(indices)
+    ribbonGeo.computeVertexNormals()
+
+    // Continuous perimeter outline along shaft borders + arrowhead
+    const outlinePts: THREE.Vector3[] = [
+      ...leftPts,
+      headLeft,
+      tip,
+      headRight,
+      ...rightPts.slice().reverse(),
+    ]
+    const outlineGeo = new THREE.BufferGeometry().setFromPoints(outlinePts)
+
+    return { ribbonGeo, outlineGeo }
   }
 
   private buildEdgeVisual(edge: DataFlowEdge): EdgeVisual | null {
@@ -524,39 +614,36 @@ export class SceneEngine {
     if (!fromBlock || !toBlock) return null
 
     const curve = this.buildEdgeCurve(edge, fromBlock, toBlock)
-    const radius = edge.kind === 'recycle' ? 0.065 : 0.042
-    const tubeGeo = new THREE.TubeGeometry(curve, 36, radius, 8, false)
-    this.disposableGeometries.push(tubeGeo)
+    const shaftWidth = this.getEdgeWidth(edge.kind)
+    const headWidth = shaftWidth * 1.85
+    const headLength = 0.95
+    const { ribbonGeo, outlineGeo } = this.buildRibbonArrowGeometries(
+      curve,
+      shaftWidth,
+      headWidth,
+      headLength
+    )
 
     const colorHex = this.getEdgeColor(edge.kind)
-    const tubeMat = new THREE.MeshStandardMaterial({
+    const ribbonMat = new THREE.MeshBasicMaterial({
       color: colorHex,
-      emissive: colorHex,
-      emissiveIntensity: 0.12,
-      roughness: 0.4,
       transparent: true,
-      opacity: 0.45,
+      opacity: 0.34,
+      depthWrite: false,
+      side: THREE.DoubleSide,
     })
-    this.disposableMaterials.push(tubeMat)
-    const tube = new THREE.Mesh(tubeGeo, tubeMat)
+    this.disposableMaterials.push(ribbonMat)
+    const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat)
+    ribbonMesh.renderOrder = 2
 
-    const arrowMat = new THREE.MeshStandardMaterial({
+    const outlineMat = new THREE.LineBasicMaterial({
       color: colorHex,
-      emissive: colorHex,
-      emissiveIntensity: 0.25,
-      roughness: 0.35,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.42,
     })
-    this.disposableMaterials.push(arrowMat)
-
-    const arrows: THREE.Mesh[] = []
-    const arrowTs = edge.kind === 'recycle' ? [0.48, 0.92] : [0.92]
-    for (const t of arrowTs) {
-      const arrow = new THREE.Mesh(this.arrowGeo, arrowMat)
-      this.orientArrowAt(arrow, curve, t)
-      arrows.push(arrow)
-    }
+    this.disposableMaterials.push(outlineMat)
+    const outlineLine = new THREE.Line(outlineGeo, outlineMat)
+    outlineLine.renderOrder = 3
 
     let labelSprite: THREE.Sprite | null = null
     if (edge.label) {
@@ -566,7 +653,7 @@ export class SceneEngine {
       }
       this.disposableMaterials.push(labelSprite.material)
       const midPt = curve.getPointAt(0.5)
-      labelSprite.position.set(midPt.x, midPt.y + 0.38, midPt.z)
+      labelSprite.position.set(midPt.x, midPt.y + 0.42, midPt.z)
       labelSprite.visible = false
     }
 
@@ -577,7 +664,7 @@ export class SceneEngine {
       const beadMat = new THREE.MeshBasicMaterial({
         color: colorHex,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.75,
       })
       this.disposableMaterials.push(beadMat)
       const bead = new THREE.Mesh(this.beadGeo, beadMat)
@@ -588,10 +675,10 @@ export class SceneEngine {
     return {
       spec: edge,
       curve,
-      tube,
-      tubeMat,
-      arrows,
-      arrowMat,
+      ribbonMesh,
+      ribbonMat,
+      outlineLine,
+      outlineMat,
       labelSprite,
       beads,
       beadOffsets,
@@ -600,18 +687,30 @@ export class SceneEngine {
     }
   }
 
+  private getEdgeWidth(kind: DataFlowEdge['kind']): number {
+    switch (kind) {
+      case 'pair-bias':
+      case 'recycle':
+        return 0.48
+      case 'conditioning':
+        return 0.46
+      default:
+        return 0.62
+    }
+  }
+
   private getEdgeColor(kind: DataFlowEdge['kind']): number {
     switch (kind) {
       case 'recycle':
-        return 0xf59e0b
+        return 0xfbbf24
       case 'pair-bias':
-        return 0xa855f7
+        return 0x818cf8
       case 'conditioning':
-        return 0xec4899
+        return 0x38bdf8
       case 'residual':
-        return 0x14b8a6
+        return 0x22c55e
       default:
-        return 0x6366f1
+        return 0x4ade80
     }
   }
 
@@ -706,13 +805,18 @@ export class SceneEngine {
     mid.z += 0.65
 
     ev.curve = new THREE.CatmullRomCurve3([start, mid, end])
-    const newGeo = new THREE.TubeGeometry(ev.curve, 24, 0.052, 8, false)
-    ev.tube.geometry.dispose()
-    ev.tube.geometry = newGeo
+    const { ribbonGeo, outlineGeo } = this.buildRibbonArrowGeometries(
+      ev.curve,
+      0.48,
+      0.48 * 1.85,
+      0.85,
+      20
+    )
+    ev.ribbonMesh.geometry.dispose()
+    ev.ribbonMesh.geometry = ribbonGeo
+    ev.outlineLine.geometry.dispose()
+    ev.outlineLine.geometry = outlineGeo
 
-    if (ev.arrows[0]) {
-      this.orientArrowAt(ev.arrows[0], ev.curve, 0.92)
-    }
     if (ev.labelSprite) {
       const labelPt = ev.curve.getPointAt(0.5)
       ev.labelSprite.position.set(labelPt.x + 1.5, labelPt.y, labelPt.z + 0.3)
@@ -807,10 +911,16 @@ export class SceneEngine {
     for (const ev of this.edgeVisuals) {
       const highlighted = !hasHighlightedEdges || this.highlightEdgeIds.has(ev.spec.id)
       ev.isHighlighted = highlighted
-      ev.tubeMat.opacity = highlighted ? 0.72 : this.isDark ? 0.24 : 0.14
-      ev.tubeMat.emissiveIntensity = highlighted ? 0.35 : 0.04
-      ev.arrowMat.opacity = highlighted ? 0.92 : this.isDark ? 0.28 : 0.16
-      ev.arrowMat.emissiveIntensity = highlighted ? 0.45 : 0.05
+      if (!hasHighlightedEdges) {
+        ev.ribbonMat.opacity = 0.34
+        ev.outlineMat.opacity = 0.4
+      } else if (highlighted) {
+        ev.ribbonMat.opacity = 0.56
+        ev.outlineMat.opacity = 0.62
+      } else {
+        ev.ribbonMat.opacity = this.isDark ? 0.16 : 0.11
+        ev.outlineMat.opacity = this.isDark ? 0.18 : 0.12
+      }
       if (ev.labelSprite) {
         const showEdgeLabel = hasHighlightedEdges && highlighted
         ev.labelSprite.visible = showEdgeLabel
@@ -920,7 +1030,7 @@ export class SceneEngine {
     const pos = new THREE.Vector3()
     for (const ev of this.edgeVisuals) {
       if (ev.spec.kind === 'recycle' && this.recyclePulseBoost > 0) {
-        ev.tubeMat.emissiveIntensity = 0.35 + this.recyclePulseBoost * 0.9
+        ev.ribbonMat.opacity = Math.min(0.85, 0.56 + this.recyclePulseBoost * 0.28)
       }
       if (!this.isFlowPlaying) continue
       const speedMult = ev.spec.kind === 'recycle' ? 1 + this.recyclePulseBoost * 1.5 : 1
@@ -963,7 +1073,6 @@ export class SceneEngine {
 
     this.clearModelScene()
     this.beadGeo.dispose()
-    this.arrowGeo.dispose()
     this.gridHelper.dispose()
     this.renderer.dispose()
 

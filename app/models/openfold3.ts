@@ -13,7 +13,17 @@ export const openfold3Model: FoldingModelSpec = {
   description:
     'OpenFold3 is an all-atom biomolecular structure prediction model (AlphaFold3-class architecture) unifying protein, RNA, DNA, and small-molecule ligand co-folding through a 48-block Pairformer trunk and a 200-step all-atom EDM diffusion module.',
   repoUrl: OF3_REPO,
-  paperUrl: 'https://arxiv.org/abs/2405.10955',
+  paperUrl: 'https://portal.openfold.omsf.io/reports/of3p2_technical_report.pdf',
+  papers: [
+    {
+      label: 'OF3 Report',
+      url: 'https://portal.openfold.omsf.io/reports/of3p2_technical_report.pdf',
+    },
+    {
+      label: 'AF3 Paper',
+      url: 'https://www.nature.com/articles/s41586-024-07487-w',
+    },
+  ],
   tags: ['All-Atom', 'Co-Folding', 'Pairformer 48×', 'EDM Diffusion', 'Apache 2.0'],
   stats: [
     { label: 'Trunk', value: '48× Pairformer' },

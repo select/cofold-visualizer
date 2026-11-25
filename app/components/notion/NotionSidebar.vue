@@ -234,10 +234,25 @@ function inspectBlock(id: string) {
         class="n-row text-[13px]"
       >
         <span class="i-mdi-github h-4 w-4"></span>
-        <span class="truncate">aqlaboratory/openfold-3</span>
+        <span class="truncate">GitHub</span>
         <span class="i-lucide-arrow-up-right ml-auto h-3.5 w-3.5 text-n-faint"></span>
       </a>
+      <template v-if="store.activeModel.papers?.length">
+        <a
+          v-for="paper in store.activeModel.papers"
+          :key="paper.url"
+          :href="paper.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="n-row text-[13px]"
+        >
+          <span class="i-lucide-file-text h-4 w-4"></span>
+          <span class="truncate">{{ paper.label }}</span>
+          <span class="i-lucide-arrow-up-right ml-auto h-3.5 w-3.5 text-n-faint"></span>
+        </a>
+      </template>
       <a
+        v-else
         :href="store.activeModel.paperUrl"
         target="_blank"
         rel="noopener noreferrer"

@@ -11,7 +11,7 @@ const boltz2Placeholder: FoldingModelSpec = {
   description:
     'Boltz-2 extends open-weight all-atom diffusion co-folding with steering potentials and explicit binding affinity prediction heads.',
   repoUrl: 'https://github.com/jwohlwend/boltz',
-  paperUrl: 'https://arxiv.org/abs/2506.00000',
+  paperUrl: 'https://doi.org/10.1101/2025.06.14.659707',
   tags: ['All-Atom', 'Affinity Head', 'Steering'],
   stats: [
     { label: 'Trunk', value: 'Pairformer' },
