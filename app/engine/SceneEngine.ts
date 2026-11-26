@@ -266,7 +266,7 @@ export class SceneEngine {
     }
 
     if (model.edges.some(e => e.kind === 'recycle')) {
-      this.buildRecycleLoopBadge('↻ 10× Loop')
+      this.buildRecycleLoopBadge('10x loop')
     }
 
     this.refreshVisualStates()
@@ -1106,7 +1106,7 @@ export class SceneEngine {
     }
 
     const sprite = createRecycleLoopBadgeSprite(text, this.isDark)
-    sprite.position.set(-2.0, 10.2, 0.5)
+    sprite.position.set(-2.6, 10.1, -4.1)
     if (sprite.material.map) {
       this.disposableTextures.push(sprite.material.map)
     }
@@ -1140,8 +1140,8 @@ export class SceneEngine {
 
     const nextText =
       (isRecyclingChapter || isRecycleBlockSelected) && this.recycleCycleScrubbed
-        ? `↻ 10× Loop (Cycle ${this.recycleCycle}/10)`
-        : '↻ 10× Loop'
+        ? `10x loop (${this.recycleCycle}/10)`
+        : '10x loop'
 
     if (nextText !== this.recycleBadgeText) {
       this.buildRecycleLoopBadge(nextText)
@@ -1165,8 +1165,8 @@ export class SceneEngine {
     if (!this.recycleBadgeSprite || !this.recycleBadgeSprite.visible) return
     this.recycleBadgeSprite.getWorldPosition(this.scratchVec)
     const dist = this.camera.position.distanceTo(this.scratchVec)
-    const aspect = (this.recycleBadgeSprite.userData.aspect as number | undefined) ?? 3.8
-    const s = THREE.MathUtils.clamp(dist * 0.135, 4.4, 10.8)
+    const aspect = (this.recycleBadgeSprite.userData.aspect as number | undefined) ?? 2.6
+    const s = THREE.MathUtils.clamp(dist * 0.054, 1.8, 4.3)
     this.recycleBadgeSprite.scale.set(s, s / aspect, 1)
   }
 
