@@ -154,15 +154,151 @@ export function createTensorMatrixTexture(
   return texture
 }
 
+function drawDimensionIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  radius: number,
+  color: string
+) {
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.lineWidth = 3.8
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+
+  const hexAngles = [
+    -Math.PI / 2,
+    -Math.PI / 6,
+    Math.PI / 6,
+    Math.PI / 2,
+    (5 * Math.PI) / 6,
+    (-5 * Math.PI) / 6,
+  ]
+  ctx.beginPath()
+  for (let i = 0; i < hexAngles.length; i++) {
+    const a = hexAngles[i]!
+    const px = cx + Math.cos(a) * radius
+    const py = cy + Math.sin(a) * radius
+    if (i === 0) ctx.moveTo(px, py)
+    else ctx.lineTo(px, py)
+  }
+  ctx.closePath()
+  ctx.stroke()
+
+  const innerAngles = [(-5 * Math.PI) / 6, -Math.PI / 6, Math.PI / 2]
+  for (const a of innerAngles) {
+    ctx.beginPath()
+    ctx.moveTo(cx, cy)
+    ctx.lineTo(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius)
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+export function createMsaAlignmentTexture(isDark: boolean): THREE.CanvasTexture {
+  const size = 512
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) return new THREE.CanvasTexture(canvas)
+
+  ctx.fillStyle = isDark ? '#18181b' : '#f8fafc'
+  ctx.fillRect(0, 0, size, size)
+
+  const cols = 28
+  const rows = 22
+  const cw = size / cols
+  const ch = size / rows
+  const clustalPalette = [
+    '#3b82f6',
+    '#ef4444',
+    '#22c55e',
+    '#d946ef',
+    '#eab308',
+    '#06b6d4',
+    '#f97316',
+  ]
+  const colColorIdx = Array.from({ length: cols }, (_, x) => {
+    const n = seededNoise(x * 31 + 7)
+    if (n > 0.38) return Math.floor(seededNoise(x * 17 + 3) * clustalPalette.length)
+    return -1
+  })
+
+  for (let y = 0; y < rows; y++) {
+    const leadGaps = Math.floor(seededNoise(y * 13 + 5) * 5)
+    for (let x = 0; x < cols; x++) {
+      const isGap = x < leadGaps || seededNoise(y * 41 + x * 19) > 0.88
+      const px = x * cw + 1
+      const py = y * ch + 1
+      if (isGap) {
+        ctx.fillStyle = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.04)'
+        ctx.fillRect(px, py, cw - 2, ch - 2)
+        ctx.fillStyle = isDark ? 'rgba(148,163,184,0.35)' : 'rgba(100,116,139,0.4)'
+        ctx.fillRect(px + cw * 0.25, py + ch * 0.45, cw * 0.5 - 2, 2)
+      } else {
+        const paletteIdx = colColorIdx[x]!
+        const match = paletteIdx >= 0 && seededNoise(y * 23 + x * 11) > 0.22
+        if (match) {
+          ctx.fillStyle = clustalPalette[paletteIdx]!
+          ctx.globalAlpha = 0.85
+          ctx.fillRect(px, py, cw - 2, ch - 2)
+          ctx.globalAlpha = 1.0
+        } else {
+          const v = seededNoise(y * 29 + x * 7)
+          ctx.fillStyle = `rgba(6, 182, 212, ${(0.12 + v * 0.28).toFixed(3)})`
+          ctx.fillRect(px, py, cw - 2, ch - 2)
+        }
+      }
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 4
+  texture.needsUpdate = true
+  return texture
+}
+
 export function createLabelSprite(
   title: string,
   subtitle: string,
   accentColor: string,
   isDark: boolean,
-  compact = false
+  compact = false,
+  borderColor?: string
 ): THREE.Sprite {
-  const width = 768
   const height = compact || !subtitle ? 136 : 200
+  const titleFont = '700 56px Inter, system-ui, -apple-system, sans-serif'
+  const subFont = '600 38px ui-monospace, SFMono-Regular, Menlo, monospace'
+
+  const dimMatch = title.match(/^(.*)\s+\[(\d+)\]$/)
+  const baseTitle = dimMatch ? `${dimMatch[1]} (${dimMatch[2]}` : title
+  const closeParen = dimMatch ? ')' : ''
+  const iconSpace = dimMatch ? 42 : 0
+
+  const measureCanvas = document.createElement('canvas')
+  const measureCtx = measureCanvas.getContext('2d')
+  let textW = title.length * 32
+  let baseTitleW = textW
+  if (measureCtx) {
+    measureCtx.font = titleFont
+    baseTitleW = measureCtx.measureText(baseTitle).width
+    textW = baseTitleW + iconSpace + (closeParen ? measureCtx.measureText(closeParen).width : 0)
+    if (!compact && subtitle) {
+      measureCtx.font = subFont
+      textW = Math.max(textW, measureCtx.measureText(subtitle).width)
+    }
+  }
+
+  const padX = 12
+  const padY = 12
+  const leftOffset = padX + 74
+  const rightPad = 36
+  const width = Math.max(240, Math.ceil(textW) + leftOffset + rightPad + padX)
+
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -171,8 +307,6 @@ export function createLabelSprite(
   if (ctx) {
     ctx.clearRect(0, 0, width, height)
 
-    const padX = 12
-    const padY = 12
     const rw = width - padX * 2
     const rh = height - padY * 2
     const radius = 24
@@ -181,8 +315,8 @@ export function createLabelSprite(
     ctx.roundRect(padX, padY, rw, rh, radius)
     ctx.fillStyle = isDark ? 'rgba(30, 41, 59, 0.94)' : 'rgba(255, 255, 255, 0.95)'
     ctx.fill()
-    ctx.lineWidth = 3.5
-    ctx.strokeStyle = isDark ? '#64748b' : '#94a3b8'
+    ctx.lineWidth = borderColor ? 5 : 3.5
+    ctx.strokeStyle = borderColor ?? (isDark ? '#64748b' : '#94a3b8')
     ctx.stroke()
 
     // Accent dot
@@ -191,22 +325,26 @@ export function createLabelSprite(
     ctx.fillStyle = accentColor
     ctx.fill()
 
-    if (compact || !subtitle) {
-      ctx.fillStyle = isDark ? '#f8fafc' : '#0f172a'
-      ctx.font = '700 56px Inter, system-ui, -apple-system, sans-serif'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(title, padX + 74, height / 2 + 2, rw - 96)
-    } else {
-      // Title
-      ctx.fillStyle = isDark ? '#f8fafc' : '#0f172a'
-      ctx.font = '700 56px Inter, system-ui, -apple-system, sans-serif'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(title, padX + 74, height / 2 - 30, rw - 96)
+    const maxTextW = rw - 96
+    const titleColor = isDark ? '#f8fafc' : '#0f172a'
+    const titleY = compact || !subtitle ? height / 2 + 2 : height / 2 - 30
 
+    ctx.fillStyle = titleColor
+    ctx.font = titleFont
+    ctx.textBaseline = 'middle'
+    if (dimMatch) {
+      ctx.fillText(baseTitle, leftOffset, titleY)
+      drawDimensionIcon(ctx, leftOffset + baseTitleW + 22, titleY - 1, 15, titleColor)
+      ctx.fillText(closeParen, leftOffset + baseTitleW + iconSpace, titleY)
+    } else {
+      ctx.fillText(title, leftOffset, titleY, maxTextW)
+    }
+
+    if (!compact && subtitle) {
       // Subtitle
       ctx.fillStyle = isDark ? '#cbd5e1' : '#334155'
-      ctx.font = '600 38px ui-monospace, SFMono-Regular, Menlo, monospace'
-      ctx.fillText(subtitle, padX + 74, height / 2 + 34, rw - 96)
+      ctx.font = subFont
+      ctx.fillText(subtitle, leftOffset, height / 2 + 34, maxTextW)
     }
   }
 
@@ -224,6 +362,8 @@ export function createLabelSprite(
   })
   const sprite = new THREE.Sprite(material)
   const aspect = height / width
+  sprite.userData.aspect = aspect
+  sprite.userData.baseHeightRatio = height / 768
   sprite.scale.set(3.6, 3.6 * aspect, 1)
   return sprite
 }

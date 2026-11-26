@@ -119,11 +119,11 @@ function onSidebarNavigate() {
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden">
+  <div class="flex min-h-dvh w-full overflow-x-hidden">
     <!-- Desktop sidebar -->
     <div
       v-if="!isMobile"
-      class="shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+      class="sticky top-0 h-dvh shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
       :style="{ width: store.sidebarOpen ? '260px' : '0px' }"
     >
       <NotionSidebar />
@@ -151,14 +151,18 @@ function onSidebarNavigate() {
 
       <main
         ref="mainRef"
-        class="relative flex min-h-0 flex-1"
+        class="relative flex min-h-[calc(100dvh-44px)] flex-1"
         :class="[isNarrow && effectiveMode === 'split' && 'flex-col', dragging && 'select-none']"
       >
         <!-- 3D viewport -->
         <div
           v-show="effectiveMode !== 'docs'"
           class="relative min-h-0 min-w-0 bg-n-canvas"
-          :class="isNarrow && effectiveMode === 'split' ? 'h-[48%] shrink-0' : 'flex-1'"
+          :class="
+            isNarrow && effectiveMode === 'split'
+              ? 'h-[48dvh] shrink-0'
+              : 'sticky top-11 h-[calc(100dvh-44px)] flex-1'
+          "
         >
           <ClientOnly>
             <Viewport3D />

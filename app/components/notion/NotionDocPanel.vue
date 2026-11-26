@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import CodeSnippetViewer from '~/components/notion/CodeSnippetViewer.vue'
 import NotionToggle from '~/components/notion/NotionToggle.vue'
 import { useVisualizerStore } from '~/stores/useVisualizerStore'
 import type { TensorBlock3D, WalkthroughStep } from '~/types/architecture'
@@ -224,7 +225,7 @@ watch(
               <dt class="flex w-[150px] shrink-0 items-center gap-2 pt-[3px] text-n-muted">
                 <span class="i-lucide-code-2 h-3.5 w-3.5"></span>Source
               </dt>
-              <dd class="min-w-0 pt-[2px]">
+              <dd class="min-w-0 flex-1 pt-[2px]">
                 <a
                   :href="block.codeRef.url"
                   target="_blank"
@@ -243,6 +244,8 @@ watch(
               </dd>
             </div>
           </dl>
+
+          <CodeSnippetViewer v-if="block.codeRef?.snippet?.length" :code-ref="block.codeRef" />
 
           <p class="mt-6 text-[16px] leading-[1.7] text-n-text">{{ block.description }}</p>
 

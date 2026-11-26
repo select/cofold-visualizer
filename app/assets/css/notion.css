@@ -68,7 +68,7 @@ html.dark {
 html,
 body,
 #__nuxt {
-  height: 100%;
+  min-height: 100%;
 }
 
 body {

@@ -22,6 +22,10 @@ export interface CodeRef {
   file: string
   url: string
   symbol?: string
+  startLine?: number
+  contextBefore?: string[]
+  snippet?: string[]
+  contextAfter?: string[]
 }
 
 export type DetailedKind =
