@@ -752,8 +752,8 @@ export const openfold3Model: FoldingModelSpec = {
       kind: 'recycle',
       label: 's_prev (10 cycles)',
       controlPoints: [
-        [8.5, 6.2, -4.0],
-        [6.5, 9.2, -4.2],
+        [12.7, 5.4, -3.2],
+        [10.5, 9.2, -4.2],
         [-11.8, 9.2, -4.0],
         [-13.8, 3.6, -1.0],
       ],
@@ -765,8 +765,8 @@ export const openfold3Model: FoldingModelSpec = {
       kind: 'recycle',
       label: 'z_prev (10 cycles)',
       controlPoints: [
-        [8.5, 3.6, 4.8],
-        [6.5, 7.6, 5.2],
+        [12.9, 1.8, 3.2],
+        [10.5, 7.6, 5.2],
         [-11.8, 7.6, 4.8],
         [-13.8, 3.6, 0.5],
       ],

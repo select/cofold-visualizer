@@ -580,7 +580,14 @@ export class SceneEngine {
       ? new THREE.Vector3(...edge.controlPoints![edge.controlPoints!.length - 1]!)
       : fromBlock.group.position
 
-    const start = this.anchorToBlockFace(fromBlock, firstTarget)
+    const start =
+      edge.kind === 'recycle'
+        ? new THREE.Vector3(
+            fromBlock.group.position.x + fromBlock.spec.size[0] / 2,
+            fromBlock.group.position.y,
+            fromBlock.group.position.z
+          )
+        : this.anchorToBlockFace(fromBlock, firstTarget)
     const end = this.anchorToBlockFace(toBlock, lastTarget)
 
     const pts: THREE.Vector3[] = [start]
@@ -1106,7 +1113,7 @@ export class SceneEngine {
     }
 
     const sprite = createRecycleLoopBadgeSprite(text, this.isDark)
-    sprite.position.set(-2.6, 10.1, -4.1)
+    sprite.position.set(-0.6, 10.1, -4.1)
     if (sprite.material.map) {
       this.disposableTextures.push(sprite.material.map)
     }
