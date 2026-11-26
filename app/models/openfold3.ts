@@ -569,7 +569,7 @@ export const openfold3Model: FoldingModelSpec = {
       category: 'head',
       shape: '[N_token, N_token, 128]',
       dims: ['4 Pairformer blocks', '39 distance bins', '3.25–50.75 Å'],
-      position: [17.5, -5.8, -4.6],
+      position: [42.0, 0.0, 0.0],
       size: [3.0, 2.4, 1.8],
       stackCount: 4,
       color: '#22c55e',
@@ -603,7 +603,7 @@ export const openfold3Model: FoldingModelSpec = {
       category: 'head',
       shape: 'pLDDT [50] · PAE [64] · Disto [64]',
       dims: ['pLDDT (50 bins)', 'PAE (64, 0–32 Å)', 'Distogram (64, 2–22 Å)'],
-      position: [23.5, -5.8, -4.6],
+      position: [48.5, 0.0, 0.0],
       size: [3.4, 2.6, 1.4],
       color: '#16a34a',
       matrixStyle: 'heatmap',
@@ -832,6 +832,11 @@ export const openfold3Model: FoldingModelSpec = {
       to: 'aux-pairformer',
       kind: 'forward',
       label: 'z_trunk',
+      controlPoints: [
+        [13.5, -5.5, -0.8],
+        [26.0, -5.5, -1.4],
+        [38.0, -5.5, -0.6],
+      ],
     },
     {
       id: 'e-coords-to-aux',
@@ -839,10 +844,6 @@ export const openfold3Model: FoldingModelSpec = {
       to: 'aux-pairformer',
       kind: 'conditioning',
       label: 'x_pred dists (39 bins)',
-      controlPoints: [
-        [33.5, -5.2, 0.2],
-        [26.0, -6.4, -2.2],
-      ],
     },
     {
       id: 'e-aux-to-heads',
@@ -891,8 +892,8 @@ export const openfold3Model: FoldingModelSpec = {
       focusBlockIds: [],
       highlightEdgeIds: [],
       camera: {
-        position: [-8.5, 28.5, 68.5],
-        target: [0.5, -1.1, 0.0],
+        position: [0.0, 32.0, 78.0],
+        target: [9.5, -1.0, 0.0],
       },
       interactiveHint: null,
     },
@@ -1307,8 +1308,8 @@ export const openfold3Model: FoldingModelSpec = {
       focusBlockIds: ['aux-pairformer', 'confidence-outputs', 'denoised-coords'],
       highlightEdgeIds: ['e-pf-pair-to-aux', 'e-coords-to-aux', 'e-aux-to-heads'],
       camera: {
-        position: [23.0, 1.0, 17.5],
-        target: [21.5, -4.1, -1.0],
+        position: [44.5, 4.2, 18.5],
+        target: [44.0, -0.4, 0.0],
       },
       interactiveHint: null,
     },

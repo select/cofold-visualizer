@@ -7,6 +7,7 @@ import {
   createAxisTagSprite,
   createEdgeLabelSprite,
   createLabelSprite,
+  createRecycleLoopBadgeSprite,
   createStageHeaderTexture,
   createTensorMatrixTexture,
 } from './textures'
@@ -19,6 +20,21 @@ const OVERVIEW_LANDMARK_IDS = new Set([
   'diffusion-transformer',
   'denoised-coords',
   'confidence-outputs',
+])
+
+const TRUNK_BLOCK_IDS = new Set([
+  'input-features',
+  'ref-conformers',
+  'atom-attn-encoder-init',
+  's-input',
+  's-init',
+  'z-init',
+  'trunk-recycle-gate',
+  'template-embedder',
+  'msa-embedder',
+  'msa-stack',
+  'pairformer-pair',
+  'pairformer-single',
 ])
 
 export interface SceneEngineCallbacks {
@@ -88,6 +104,7 @@ export class SceneEngine {
   private isDark = false
   private isFlowPlaying = true
   private recycleCycle = 4
+  private recycleCycleScrubbed = false
   private pairformerBlock = 24
   private diffusionStep = 160
   private selectedBlockId: string | null = null
@@ -95,6 +112,8 @@ export class SceneEngine {
   private focusBlockIds = new Set<string>()
   private highlightEdgeIds = new Set<string>()
   private recyclePulseBoost = 0
+  private recycleBadgeSprite: THREE.Sprite | null = null
+  private recycleBadgeText = ''
 
   private cameraFlying = false
   private readonly baseCamPos = new THREE.Vector3(3, 22, 68)
@@ -139,7 +158,7 @@ export class SceneEngine {
     this.controls.dampingFactor = 0.08
     this.controls.zoomToCursor = true
     this.controls.minDistance = 4
-    this.controls.maxDistance = 140
+    this.controls.maxDistance = 165
     this.controls.maxPolarAngle = Math.PI * 0.85
     this.controls.target.copy(this.desiredTarget)
     this.controls.addEventListener('start', this.handleControlsStart)
@@ -208,7 +227,7 @@ export class SceneEngine {
   private applyThemeColors() {
     const bgHex = this.isDark ? 0x161618 : 0xfafaf9
     this.scene.background = new THREE.Color(bgHex)
-    this.scene.fog = new THREE.Fog(bgHex, 100, 230)
+    this.scene.fog = new THREE.Fog(bgHex, 100, 270)
 
     this.hemiLight.intensity = 0.95
     this.hemiLight.groundColor.setHex(this.isDark ? 0x18181b : 0xcbd5e1)
@@ -246,6 +265,10 @@ export class SceneEngine {
       }
     }
 
+    if (model.edges.some(e => e.kind === 'recycle')) {
+      this.buildRecycleLoopBadge('↻ 10× Loop')
+    }
+
     this.refreshVisualStates()
   }
 
@@ -262,7 +285,7 @@ export class SceneEngine {
       { title: 'Templates & MSA', cx: -6.0, cz: -0.2, width: 19.6, depth: 11.6, color: 0x14b8a6 },
       { title: 'Pairformer 48×', cx: 8.5, cz: -0.4, width: 8.0, depth: 9.2, color: 0x9333ea },
       { title: 'EDM Diffusion 200×', cx: 26.0, cz: 1.6, width: 24.0, depth: 5.4, color: 0xe11d48 },
-      { title: 'Confidence Heads', cx: 20.5, cz: -5.0, width: 11.8, depth: 3.4, color: 0x16a34a },
+      { title: 'Confidence Heads', cx: 45.2, cz: 0.0, width: 12.5, depth: 7.5, color: 0x16a34a },
     ]
 
     for (const st of stages) {
@@ -325,6 +348,8 @@ export class SceneEngine {
     this.blockVisuals.clear()
     this.edgeVisuals.length = 0
     this.hitTargets.length = 0
+    this.recycleBadgeSprite = null
+    this.recycleBadgeText = ''
 
     if (this.moleculeCloud) {
       this.moleculeCloud.dispose()
@@ -452,9 +477,6 @@ export class SceneEngine {
 
     if (block.id === 'pairformer-pair') {
       labelSprite.position.set(0, -sy / 2 - 1.15, sz / 2 + 0.5)
-      compactLabelSprite.position.copy(labelSprite.position)
-    } else if (block.id === 'confidence-outputs') {
-      labelSprite.position.set(0, -sy / 2 - 1.05, 0)
       compactLabelSprite.position.copy(labelSprite.position)
     } else {
       const labelExtraY = block.id === 'denoised-coords' ? 1.35 : 0.98
@@ -820,7 +842,9 @@ export class SceneEngine {
   public setRecycleCycle(cycle: number) {
     if (this.recycleCycle !== cycle) {
       this.recycleCycle = cycle
+      this.recycleCycleScrubbed = true
       this.recyclePulseBoost = 1.0
+      this.updateRecycleBadge()
     }
   }
 
@@ -1069,6 +1093,81 @@ export class SceneEngine {
         b.visible = ev.isHighlighted
       })
     }
+
+    this.updateRecycleBadge()
+  }
+
+  private buildRecycleLoopBadge(text: string) {
+    if (this.recycleBadgeSprite) {
+      this.modelGroup.remove(this.recycleBadgeSprite)
+      this.recycleBadgeSprite.material.map?.dispose()
+      this.recycleBadgeSprite.material.dispose()
+      this.recycleBadgeSprite = null
+    }
+
+    const sprite = createRecycleLoopBadgeSprite(text, this.isDark)
+    sprite.position.set(-2.0, 10.2, 0.5)
+    if (sprite.material.map) {
+      this.disposableTextures.push(sprite.material.map)
+    }
+    this.disposableMaterials.push(sprite.material)
+    this.modelGroup.add(sprite)
+    this.recycleBadgeSprite = sprite
+    this.recycleBadgeText = text
+  }
+
+  private updateRecycleBadge() {
+    if (!this.recycleBadgeSprite) return
+
+    const hasFocus = this.focusBlockIds.size > 0
+    const isOverviewMode = !hasFocus && this.selectedBlockId === null
+    const isRecyclingChapter =
+      this.highlightEdgeIds.has('e-recycle-arc-single') ||
+      this.highlightEdgeIds.has('e-recycle-arc-pair')
+    const isRecycleBlockSelected = this.selectedBlockId === 'trunk-recycle-gate'
+
+    let isTrunkChapter = false
+    if (this.selectedBlockId !== null) {
+      isTrunkChapter = TRUNK_BLOCK_IDS.has(this.selectedBlockId)
+    } else if (hasFocus) {
+      for (const id of this.focusBlockIds) {
+        if (TRUNK_BLOCK_IDS.has(id)) {
+          isTrunkChapter = true
+          break
+        }
+      }
+    }
+
+    const nextText =
+      (isRecyclingChapter || isRecycleBlockSelected) && this.recycleCycleScrubbed
+        ? `↻ 10× Loop (Cycle ${this.recycleCycle}/10)`
+        : '↻ 10× Loop'
+
+    if (nextText !== this.recycleBadgeText) {
+      this.buildRecycleLoopBadge(nextText)
+    }
+
+    const sprite = this.recycleBadgeSprite
+    if (!sprite) return
+
+    if (isOverviewMode || isRecyclingChapter || isRecycleBlockSelected) {
+      sprite.visible = true
+      sprite.material.opacity = 1.0
+    } else if (isTrunkChapter) {
+      sprite.visible = true
+      sprite.material.opacity = this.isDark ? 0.48 : 0.55
+    } else {
+      sprite.visible = false
+    }
+  }
+
+  private updateLabelScales() {
+    if (!this.recycleBadgeSprite || !this.recycleBadgeSprite.visible) return
+    this.recycleBadgeSprite.getWorldPosition(this.scratchVec)
+    const dist = this.camera.position.distanceTo(this.scratchVec)
+    const aspect = (this.recycleBadgeSprite.userData.aspect as number | undefined) ?? 3.8
+    const s = THREE.MathUtils.clamp(dist * 0.135, 4.4, 10.8)
+    this.recycleBadgeSprite.scale.set(s, s / aspect, 1)
   }
 
   private readonly handleControlsStart = () => {
@@ -1206,6 +1305,7 @@ export class SceneEngine {
       }
     }
 
+    this.updateLabelScales()
     this.deoverlapScreenLabels()
 
     if (this.recyclePulseBoost > 0) {
@@ -1289,6 +1389,11 @@ export class SceneEngine {
         : visual.labelSprite
       if (!activeSprite.visible || activeSprite.material.opacity < 0.25) continue
       const rect = computeRect(activeSprite, 12)
+      if (rect) placedRects.push(rect)
+    }
+
+    if (this.recycleBadgeSprite && this.recycleBadgeSprite.visible) {
+      const rect = computeRect(this.recycleBadgeSprite, 12)
       if (rect) placedRects.push(rect)
     }
 

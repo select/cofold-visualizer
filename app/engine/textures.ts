@@ -430,3 +430,63 @@ export function createStageHeaderTexture(title: string, isDark: boolean): THREE.
   texture.needsUpdate = true
   return texture
 }
+
+export function createRecycleLoopBadgeSprite(text: string, isDark: boolean): THREE.Sprite {
+  const height = 108
+  const font = '800 44px Inter, system-ui, -apple-system, sans-serif'
+  const measureCanvas = document.createElement('canvas')
+  const measureCtx = measureCanvas.getContext('2d')
+  let textW = text.length * 26
+  if (measureCtx) {
+    measureCtx.font = font
+    textW = measureCtx.measureText(text).width
+  }
+
+  const padX = 44
+  const width = Math.max(300, Math.ceil(textW) + padX * 2)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+
+  if (ctx) {
+    ctx.clearRect(0, 0, width, height)
+    const inset = 6
+    const rw = width - inset * 2
+    const rh = height - inset * 2
+    const radius = 24
+
+    ctx.beginPath()
+    ctx.roundRect(inset, inset, rw, rh, radius)
+    ctx.fillStyle = isDark ? 'rgba(24, 24, 27, 0.95)' : 'rgba(255, 251, 235, 0.97)'
+    ctx.fill()
+
+    ctx.lineWidth = 4.5
+    ctx.strokeStyle = isDark ? '#fbbf24' : '#d97706'
+    ctx.stroke()
+
+    ctx.fillStyle = isDark ? '#fef3c7' : '#92400e'
+    ctx.font = font
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, width / 2, height / 2 + 1, rw - 32)
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 4
+  texture.needsUpdate = true
+
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    fog: false,
+    toneMapped: false,
+  })
+  const sprite = new THREE.Sprite(material)
+  sprite.renderOrder = 23
+  sprite.userData.aspect = width / height
+  return sprite
+}
