@@ -1,91 +1,39 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useVisualizerStore } from '~/stores/useVisualizerStore'
-import type { InteractiveHint } from '~/types/architecture'
-import { diffusionSigma, formatSigma } from '~/utils/diffusion'
 
 const store = useVisualizerStore()
 const hudRef = ref<HTMLElement | null>(null)
-
-const tabs: Array<{ id: InteractiveHint; label: string; icon: string }> = [
-  { id: 'cycle', label: 'Recycle', icon: 'i-lucide-repeat' },
-  { id: 'pairformerBlock', label: 'Pairformer', icon: 'i-lucide-grid-3x3' },
-  { id: 'diffusionStep', label: 'Diffusion', icon: 'i-lucide-waves' },
-]
-
-const activeTab = ref<InteractiveHint>('cycle')
-const slidersOpen = ref(false)
+const recycleOpen = ref(false)
 
 watch(
   () => store.activeStep?.interactiveHint,
   hint => {
-    if (hint) {
-      activeTab.value = hint
-      slidersOpen.value = true
-    } else {
-      slidersOpen.value = false
-    }
+    recycleOpen.value = hint === 'cycle'
   },
   { immediate: true }
 )
 
-function selectTab(id: InteractiveHint) {
-  if (activeTab.value === id && slidersOpen.value) {
-    slidersOpen.value = false
-    return
-  }
-  activeTab.value = id
-  slidersOpen.value = true
-}
-
-const sigma = computed(() => formatSigma(diffusionSigma(store.diffusionStep)))
-
-const slider = computed(() => {
-  switch (activeTab.value) {
-    case 'pairformerBlock':
-      return {
-        title: 'Pairformer block',
-        min: 1,
-        max: 48,
-        value: store.pairformerBlock,
-        display: `${store.pairformerBlock} / 48`,
-        hint: 'Triangle updates + pair-biased single attention',
-      }
-    case 'diffusionStep':
-      return {
-        title: 'Diffusion step',
-        min: 0,
-        max: 200,
-        value: store.diffusionStep,
-        display: `${store.diffusionStep} / 200`,
-        hint: `σ ≈ ${sigma.value} Å`,
-      }
-    default:
-      return {
-        title: 'Recycle cycle',
-        min: 1,
-        max: 10,
-        value: store.recycleCycle,
-        display: `${store.recycleCycle} / 10`,
-        hint: 'Trunk outputs fed back into the next pass',
-      }
-  }
-})
-
-const fillPercent = computed(() => {
-  const s = slider.value
-  return `${((s.value - s.min) / (s.max - s.min)) * 100}%`
-})
+const fillPercent = computed(() => `${((store.recycleCycle - 1) / 9) * 100}%`)
 
 function onSlider(event: Event) {
-  const value = Number((event.target as HTMLInputElement).value)
-  if (activeTab.value === 'cycle') store.setRecycleCycle(value)
-  else if (activeTab.value === 'pairformerBlock') store.setPairformerBlock(value)
-  else store.setDiffusionStep(value)
+  store.setRecycleCycle(Number((event.target as HTMLInputElement).value))
 }
 
 const hovered = computed(() =>
-  store.hoveredBlock && store.hoveredBlock.id !== store.selectedBlockId ? store.hoveredBlock : null
+  store.hoveredBlock &&
+  store.hoveredBlock.id !== store.selectedBlockId &&
+  !store.isBlockExpanded(store.hoveredBlock.id)
+    ? store.hoveredBlock
+    : null
+)
+
+const hoveredInput = computed(() =>
+  !hovered.value &&
+  store.hoveredInputSource &&
+  store.hoveredInputSource.id !== store.selectedInputSourceId
+    ? store.hoveredInputSource
+    : null
 )
 
 const selectedExpandable = computed(() =>
@@ -176,35 +124,56 @@ const tooltipStyle = computed(() => {
       </div>
     </Transition>
 
+    <!-- Hovered external input tooltip -->
+    <Transition name="n-pop">
+      <div
+        v-if="hoveredInput"
+        :key="hoveredInput.id"
+        class="n-surface-float absolute max-w-[min(320px,calc(100%-24px))] px-3 py-2.5"
+        :style="tooltipStyle"
+        role="status"
+      >
+        <div class="flex items-center gap-2">
+          <span
+            class="h-2 w-2 shrink-0 rounded-full"
+            :style="{ backgroundColor: hoveredInput.color }"
+          ></span>
+          <span class="truncate text-[13px] font-medium text-n-text">{{ hoveredInput.label }}</span>
+        </div>
+        <div class="mt-1.5 flex items-center gap-2 pl-4">
+          <code class="n-code !text-[11.5px]">{{ hoveredInput.formatBadge }}</code>
+        </div>
+        <p class="mt-1.5 flex items-center gap-1 pl-4 text-[11px] text-n-muted">
+          <span class="i-lucide-mouse-pointer-click h-3 w-3"></span>
+          Click to inspect {{ hoveredInput.shortLabel }} example
+        </p>
+      </div>
+    </Transition>
+
     <!-- Bottom control dock -->
     <div class="absolute inset-x-0 bottom-3 flex justify-center px-3">
-      <div class="n-surface-float pointer-events-auto w-full max-w-[460px] overflow-hidden">
-        <div class="n-collapse" :data-open="slidersOpen">
+      <div class="n-surface-float pointer-events-auto w-fit max-w-full overflow-hidden">
+        <div class="n-collapse" :data-open="recycleOpen">
           <div>
             <div class="border-b border-n-border px-3.5 pb-2.5 pt-3">
               <div class="flex items-baseline justify-between gap-3">
-                <span class="text-[12px] font-medium text-n-text">{{ slider.title }}</span>
-                <span class="n-mono text-[11.5px] tabular-nums text-n-muted">{{
-                  slider.display
-                }}</span>
+                <span class="text-[12px] font-medium text-n-text">Recycle cycle</span>
+                <span class="n-mono text-[11.5px] tabular-nums text-n-muted"
+                  >{{ store.recycleCycle }} / 10</span
+                >
               </div>
               <input
                 class="n-range mt-2"
                 type="range"
-                :min="slider.min"
-                :max="slider.max"
+                :min="1"
+                :max="10"
                 step="1"
-                :value="slider.value"
-                :aria-label="slider.title"
+                :value="store.recycleCycle"
+                aria-label="Recycle cycle"
                 :style="{ '--n-range-fill': fillPercent }"
                 @input="onSlider"
               />
-              <p
-                class="mt-1 text-[11px] text-n-muted"
-                :class="activeTab === 'diffusionStep' && 'n-mono'"
-              >
-                {{ slider.hint }}
-              </p>
+              <p class="mt-1 text-[11px] text-n-muted">Trunk outputs fed back into the next pass</p>
             </div>
           </div>
         </div>
@@ -248,26 +217,21 @@ const tooltipStyle = computed(() => {
 
           <div class="mx-1 h-4 w-px bg-n-border"></div>
 
-          <div class="flex min-w-0 flex-1 items-center gap-0.5" role="tablist">
-            <button
-              v-for="tab in tabs"
-              :key="tab.id"
-              type="button"
-              role="tab"
-              :aria-selected="slidersOpen && activeTab === tab.id"
-              class="n-btn !h-7 !gap-1 !px-1.5 !text-[12px]"
-              :class="slidersOpen && activeTab === tab.id && '!bg-n-active !text-n-text'"
-              :title="tab.label"
-              @click="selectTab(tab.id)"
-            >
-              <span :class="tab.icon" class="h-3.5 w-3.5 shrink-0"></span>
-              <span class="hidden sm:inline">{{ tab.label }}</span>
-              <span
-                v-if="store.activeStep?.interactiveHint === tab.id"
-                class="h-1.5 w-1.5 rounded-full bg-n-accent"
-              ></span>
-            </button>
-          </div>
+          <button
+            type="button"
+            :aria-expanded="recycleOpen"
+            class="n-btn !h-7 !gap-1 !px-1.5 !text-[12px]"
+            :class="recycleOpen && '!bg-n-active !text-n-text'"
+            title="Recycle"
+            @click="recycleOpen = !recycleOpen"
+          >
+            <span class="i-lucide-repeat h-3.5 w-3.5 shrink-0"></span>
+            <span class="hidden sm:inline">Recycle</span>
+            <span
+              v-if="store.activeStep?.interactiveHint === 'cycle'"
+              class="h-1.5 w-1.5 rounded-full bg-n-accent"
+            ></span>
+          </button>
 
           <button
             type="button"

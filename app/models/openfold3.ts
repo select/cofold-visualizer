@@ -78,6 +78,15 @@ export const openfold3Model: FoldingModelSpec = {
         token_features: 65,
         modalities: 'Protein, RNA, DNA, Ligand',
       },
+      detailedSpec: {
+        kind: 'token-features',
+        subStages: [
+          'Residue Type (32)',
+          'MSA Profile (32)',
+          'Deletion Mean (1)',
+          'Concat → f_token (65)',
+        ],
+      },
     },
     {
       id: 'ref-conformers',
@@ -123,6 +132,15 @@ export const openfold3Model: FoldingModelSpec = {
       params: {
         c_atom: 128,
         c_atom_pair: 16,
+      },
+      detailedSpec: {
+        kind: 'ref-conformers',
+        subStages: [
+          'Ref Coords [N_atom, 3]',
+          'Element, Charge & Name',
+          'Covalent Bond Topology',
+          'Atom [128] & Pair [16]',
+        ],
       },
     },
     {
@@ -226,6 +244,15 @@ export const openfold3Model: FoldingModelSpec = {
       params: {
         c_s_input: 449,
       },
+      detailedSpec: {
+        kind: 'single-concat',
+        subStages: [
+          'Atom Scatter Mean (384)',
+          'Token Features (65)',
+          'Concat (384 + 65)',
+          's_input [N_token, 449]',
+        ],
+      },
     },
     {
       id: 's-init',
@@ -263,6 +290,10 @@ export const openfold3Model: FoldingModelSpec = {
       },
       params: {
         c_s: 384,
+      },
+      detailedSpec: {
+        kind: 'linear-proj',
+        subStages: ['s_input [449]', 'LinearNoBias (449 → 384)', 's_init [N_token, 384]'],
       },
     },
     {
@@ -306,6 +337,15 @@ export const openfold3Model: FoldingModelSpec = {
       },
       params: {
         c_z: 128,
+      },
+      detailedSpec: {
+        kind: 'pair-init',
+        subStages: [
+          'Linear z_i + z_j Outer Sum',
+          'Relative Position Enc',
+          'Token Bonds Linear',
+          'z_init [N, N, 128]',
+        ],
       },
     },
     {
@@ -352,6 +392,16 @@ export const openfold3Model: FoldingModelSpec = {
         num_cycles: 10,
         c_s: 384,
         c_z: 128,
+      },
+      detailedSpec: {
+        kind: 'recycle-gate',
+        normType: 'LayerNorm',
+        subStages: [
+          'LayerNorm (s_prev, z_prev)',
+          'Recycle Linear Gate',
+          'Residual Add (+ s_init, z_init)',
+          '10× Cycle Output (s, z)',
+        ],
       },
     },
     {
@@ -453,6 +503,15 @@ export const openfold3Model: FoldingModelSpec = {
       params: {
         max_msa_seqs: 1024,
         c_m: 64,
+      },
+      detailedSpec: {
+        kind: 'msa-embed',
+        subStages: [
+          'Subsample (≤ 1024 rows)',
+          'Linear MSA (34 → 64)',
+          'Linear s_input (449 → 64)',
+          'Broadcast Add → m_0 [64]',
+        ],
       },
     },
     {
@@ -893,6 +952,15 @@ export const openfold3Model: FoldingModelSpec = {
         sigma_data: 16,
         p: 7,
       },
+      detailedSpec: {
+        kind: 'diffusion-sampler',
+        subStages: [
+          'EDM Schedule (σ: 160→4e-4)',
+          'Centre Random Augment',
+          'Score Step (x̂ − x_den)/t',
+          '200× Euler → 3D Complex',
+        ],
+      },
     },
     {
       id: 'aux-pairformer',
@@ -902,7 +970,7 @@ export const openfold3Model: FoldingModelSpec = {
       category: 'head',
       shape: '[N_token, N_token, 128]',
       dims: ['4 Pairformer blocks', '39 distance bins', '3.25–50.75 Å'],
-      position: [42.0, 0.0, 0.0],
+      position: [52.0, 0.0, 0.0],
       size: [3.0, 2.4, 1.8],
       stackCount: 4,
       color: '#22c55e',
@@ -953,7 +1021,7 @@ export const openfold3Model: FoldingModelSpec = {
       category: 'head',
       shape: 'pLDDT [50] · PAE [64] · Disto [64]',
       dims: ['pLDDT (50 bins)', 'PAE (64, 0–32 Å)', 'Distogram (64, 2–22 Å)'],
-      position: [48.5, 0.0, 0.0],
+      position: [58.5, 0.0, 0.0],
       size: [3.4, 2.6, 1.4],
       color: '#16a34a',
       matrixStyle: 'heatmap',
@@ -1541,9 +1609,9 @@ export const openfold3Model: FoldingModelSpec = {
       summary:
         'The 48-block Pairformer is the heart of OpenFold3. Operating solely on the 2D pair matrix z [N_token, N_token, 128] and 1D single track s [N_token, 384], it enforces 3D triangle geometry via outgoing/incoming Triangle Multiplicative Updates and starting/ending Triangle Attention, then biases single-track self-attention.',
       callout: {
-        icon: 'i-lucide-sliders-horizontal',
+        icon: 'i-lucide-layers',
         tone: 'purple',
-        text: 'Scrub the Pairformer Block slider (1–48) to highlight individual slices inside the 48-layer 3D stack.',
+        text: 'Click either Pairformer stack and choose Expand Internals to inspect Triangle Updates, Triangle Attention, and Pair-Biased Attention.',
       },
       details: [
         {
@@ -1573,7 +1641,7 @@ export const openfold3Model: FoldingModelSpec = {
         position: [16.0, 6.2, 16.0],
         target: [8.5, -0.2, -0.4],
       },
-      interactiveHint: 'pairformerBlock',
+      interactiveHint: null,
     },
     {
       id: 'diffusion-conditioning',
@@ -1631,7 +1699,7 @@ export const openfold3Model: FoldingModelSpec = {
       callout: {
         icon: 'i-lucide-box',
         tone: 'green',
-        text: 'Drag the Diffusion Step slider (0 → 200) to watch the 3D protein + ligand complex emerge from Gaussian noise!',
+        text: 'Click any Diffusion block and choose Expand Internals to inspect Atom Attention, AdaLN conditioning, and the 24-layer DiT stack.',
       },
       details: [
         {
@@ -1673,7 +1741,7 @@ export const openfold3Model: FoldingModelSpec = {
         position: [28.5, 4.8, 26.5],
         target: [28.0, -2.2, 0.5],
       },
-      interactiveHint: 'diffusionStep',
+      interactiveHint: null,
     },
     {
       id: 'confidence-heads',

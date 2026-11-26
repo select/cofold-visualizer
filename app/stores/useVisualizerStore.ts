@@ -1,7 +1,18 @@
 import { defineStore } from 'pinia'
+import { CIF_PRESETS, getCifPresetById } from '~/models/cifExamples'
+import { getInputSourceById } from '~/models/inputExamples'
 import { openfold3Model } from '~/models/openfold3'
+import { getOutputSpecById } from '~/models/outputSpecs'
 import { getModelById } from '~/models/registry'
-import type { FoldingModelSpec, TensorBlock3D, WalkthroughStep } from '~/types/architecture'
+import type {
+  FoldingModelSpec,
+  InputSourceId,
+  InputSourceSpec,
+  OutputId,
+  OutputSpec,
+  TensorBlock3D,
+  WalkthroughStep,
+} from '~/types/architecture'
 
 export type VisualizerTheme = 'light' | 'dark'
 export type VisualizerViewMode = 'split' | 'canvas' | 'docs'
@@ -18,15 +29,20 @@ export const useVisualizerStore = defineStore('visualizer', {
     activeStepIndex: 0,
     selectedBlockId: null as string | null,
     hoveredBlockId: null as string | null,
+    selectedInputSourceId: null as InputSourceId | null,
+    hoveredInputSourceId: null as InputSourceId | null,
+    selectedOutputId: null as OutputId | null,
+    hoveredOutputId: null as OutputId | null,
     hoverPointer: null as { x: number; y: number } | null,
     theme: 'light' as VisualizerTheme,
     isFlowPlaying: true,
     recycleCycle: 4,
-    pairformerBlock: 24,
-    diffusionStep: 160,
     cameraResetNonce: 0,
     viewMode: 'split' as VisualizerViewMode,
     expandedBlockIds: [] as string[],
+    selectedCifId: CIF_PRESETS[0]!.id as string,
+    customCifName: '' as string,
+    cifText: CIF_PRESETS[0]!.cifText as string,
     sidebarOpen: true,
     commandPaletteOpen: false,
   }),
@@ -55,6 +71,26 @@ export const useVisualizerStore = defineStore('visualizer', {
     hoveredBlock(state): TensorBlock3D | null {
       if (!state.hoveredBlockId) return null
       return this.activeModel.blocks.find(b => b.id === state.hoveredBlockId) ?? null
+    },
+
+    selectedInputSource(state): InputSourceSpec | null {
+      if (!state.selectedInputSourceId) return null
+      return getInputSourceById(state.selectedInputSourceId)
+    },
+
+    hoveredInputSource(state): InputSourceSpec | null {
+      if (!state.hoveredInputSourceId) return null
+      return getInputSourceById(state.hoveredInputSourceId)
+    },
+
+    selectedOutput(state): OutputSpec | null {
+      if (!state.selectedOutputId) return null
+      return getOutputSpecById(state.selectedOutputId)
+    },
+
+    hoveredOutput(state): OutputSpec | null {
+      if (!state.hoveredOutputId) return null
+      return getOutputSpecById(state.hoveredOutputId)
     },
 
     totalSteps(): number {
@@ -98,6 +134,10 @@ export const useVisualizerStore = defineStore('visualizer', {
       this.activeStepIndex = 0
       this.selectedBlockId = null
       this.hoveredBlockId = null
+      this.selectedInputSourceId = null
+      this.hoveredInputSourceId = null
+      this.selectedOutputId = null
+      this.hoveredOutputId = null
       this.hoverPointer = null
       this.expandedBlockIds = []
       this.cameraResetNonce += 1
@@ -108,6 +148,8 @@ export const useVisualizerStore = defineStore('visualizer', {
       if (total === 0) return
       this.activeStepIndex = clampInt(index, 0, total - 1)
       this.selectedBlockId = null
+      this.selectedInputSourceId = null
+      this.selectedOutputId = null
     },
 
     goToStepById(stepId: string) {
@@ -137,12 +179,70 @@ export const useVisualizerStore = defineStore('visualizer', {
       const exists = this.activeModel.blocks.some(b => b.id === id)
       if (exists) {
         this.selectedBlockId = id
+        this.selectedInputSourceId = null
+        this.selectedOutputId = null
       }
     },
 
     hoverBlock(id: string | null) {
       this.hoveredBlockId = id
-      if (id === null) {
+      if (id !== null) {
+        this.hoveredInputSourceId = null
+        this.hoveredOutputId = null
+      } else if (this.hoveredInputSourceId === null && this.hoveredOutputId === null) {
+        this.hoverPointer = null
+      }
+    },
+
+    selectInputSource(id: InputSourceId | null) {
+      this.selectedInputSourceId = id
+      if (id !== null) {
+        this.selectedBlockId = null
+        this.selectedOutputId = null
+      }
+    },
+
+    hoverInputSource(id: InputSourceId | null) {
+      this.hoveredInputSourceId = id
+      if (id !== null) {
+        this.hoveredBlockId = null
+        this.hoveredOutputId = null
+      } else if (this.hoveredBlockId === null && this.hoveredOutputId === null) {
+        this.hoverPointer = null
+      }
+    },
+
+    selectOutput(id: OutputId | null) {
+      this.selectedOutputId = id
+      if (id !== null) {
+        this.selectedBlockId = null
+        this.selectedInputSourceId = null
+        if (this.viewMode === 'canvas') {
+          this.viewMode = 'split'
+        }
+      }
+    },
+
+    selectCifPreset(id: string) {
+      const preset = getCifPresetById(id)
+      if (!preset) return
+      this.selectedCifId = preset.id
+      this.customCifName = ''
+      this.cifText = preset.cifText
+    },
+
+    loadCustomCif(name: string, text: string) {
+      this.selectedCifId = 'custom'
+      this.customCifName = name
+      this.cifText = text
+    },
+
+    hoverOutput(id: OutputId | null) {
+      this.hoveredOutputId = id
+      if (id !== null) {
+        this.hoveredBlockId = null
+        this.hoveredInputSourceId = null
+      } else if (this.hoveredBlockId === null && this.hoveredInputSourceId === null) {
         this.hoverPointer = null
       }
     },
@@ -157,14 +257,6 @@ export const useVisualizerStore = defineStore('visualizer', {
 
     setRecycleCycle(cycle: number) {
       this.recycleCycle = clampInt(cycle, 1, 10)
-    },
-
-    setPairformerBlock(block: number) {
-      this.pairformerBlock = clampInt(block, 1, 48)
-    },
-
-    setDiffusionStep(step: number) {
-      this.diffusionStep = clampInt(step, 0, 200)
     },
 
     resetCamera() {

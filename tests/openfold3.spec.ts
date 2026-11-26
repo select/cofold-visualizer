@@ -57,10 +57,17 @@ describe('OpenFold3 architecture specification', () => {
     expect(byId.get('aux-pairformer')?.stackCount).toBe(4)
   })
 
-  it('defines detailedSpec on all 11 expandable OpenFold3 blocks', () => {
+  it('defines detailedSpec on all 19 expandable OpenFold3 blocks', () => {
     const expectedIds = [
+      'input-features',
+      'ref-conformers',
       'atom-attn-encoder-init',
+      's-input',
+      's-init',
+      'z-init',
+      'trunk-recycle-gate',
       'template-embedder',
+      'msa-embedder',
       'msa-stack',
       'pairformer-pair',
       'pairformer-single',
@@ -68,11 +75,12 @@ describe('OpenFold3 architecture specification', () => {
       'atom-attn-encoder-diff',
       'diffusion-transformer',
       'atom-attn-decoder',
+      'denoised-coords',
       'aux-pairformer',
       'confidence-outputs',
     ]
     const detailedBlocks = openfold3Model.blocks.filter(b => Boolean(b.detailedSpec))
-    expect(detailedBlocks).toHaveLength(11)
+    expect(detailedBlocks).toHaveLength(19)
     expect(detailedBlocks.map(b => b.id)).toEqual(expectedIds)
 
     for (const block of detailedBlocks) {

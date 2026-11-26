@@ -5,6 +5,7 @@ import CommandPalette from '~/components/notion/CommandPalette.vue'
 import NotionDocPanel from '~/components/notion/NotionDocPanel.vue'
 import NotionSidebar from '~/components/notion/NotionSidebar.vue'
 import NotionTopbar from '~/components/notion/NotionTopbar.vue'
+import SidePanelHandle from '~/components/notion/SidePanelHandle.vue'
 import ViewportHud from '~/components/notion/ViewportHud.vue'
 import Viewport3D from '~/components/Viewport3D.vue'
 import { useVisualizerStore } from '~/stores/useVisualizerStore'
@@ -104,6 +105,8 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
       break
     case 'Escape':
       if (store.selectedBlockId) store.selectBlock(null)
+      else if (store.selectedInputSourceId) store.selectInputSource(null)
+      else if (store.selectedOutputId) store.selectOutput(null)
       else if (isMobile.value && store.sidebarOpen) store.sidebarOpen = false
       break
     case 'r':
@@ -119,14 +122,23 @@ function onSidebarNavigate() {
 </script>
 
 <template>
-  <div class="flex min-h-dvh w-full overflow-x-hidden">
+  <div class="flex h-full w-full overflow-hidden">
     <!-- Desktop sidebar -->
-    <div
-      v-if="!isMobile"
-      class="sticky top-0 h-dvh shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
-      :style="{ width: store.sidebarOpen ? '260px' : '0px' }"
-    >
-      <NotionSidebar />
+    <div v-if="!isMobile" class="relative h-full shrink-0">
+      <div
+        class="h-full overflow-hidden transition-[width] duration-200 ease-out"
+        :style="{ width: store.sidebarOpen ? '260px' : '0px' }"
+      >
+        <NotionSidebar />
+      </div>
+      <SidePanelHandle
+        side="left"
+        :open="store.sidebarOpen"
+        surface="sidebar"
+        :label="store.sidebarOpen ? 'Retract sidebar' : 'Expand sidebar'"
+        class="left-[calc(100%-1px)]"
+        @toggle="store.toggleSidebar()"
+      />
     </div>
 
     <!-- Mobile drawer -->
@@ -146,23 +158,19 @@ function onSidebarNavigate() {
     </template>
 
     <!-- Main column -->
-    <div class="flex min-w-0 flex-1 flex-col">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <NotionTopbar />
 
       <main
         ref="mainRef"
-        class="relative flex min-h-[calc(100dvh-44px)] flex-1"
+        class="relative flex min-h-0 flex-1"
         :class="[isNarrow && effectiveMode === 'split' && 'flex-col', dragging && 'select-none']"
       >
         <!-- 3D viewport -->
         <div
           v-show="effectiveMode !== 'docs'"
-          class="relative min-h-0 min-w-0 bg-n-canvas"
-          :class="
-            isNarrow && effectiveMode === 'split'
-              ? 'h-[48dvh] shrink-0'
-              : 'sticky top-11 h-[calc(100dvh-44px)] flex-1'
-          "
+          class="relative min-h-0 min-w-0 overflow-hidden bg-n-canvas"
+          :class="isNarrow && effectiveMode === 'split' ? 'h-[48%] shrink-0' : 'flex-1'"
         >
           <ClientOnly>
             <Viewport3D />
@@ -203,7 +211,7 @@ function onSidebarNavigate() {
         <!-- Document panel -->
         <div
           v-if="effectiveMode !== 'canvas'"
-          class="min-h-0 min-w-0"
+          class="relative min-h-0 min-w-0"
           :class="[
             effectiveMode === 'docs' && 'flex-1',
             effectiveMode === 'split' && isNarrow && 'flex-1 border-t border-n-border',
@@ -215,7 +223,26 @@ function onSidebarNavigate() {
           "
         >
           <NotionDocPanel :centered="effectiveMode === 'docs'" />
+          <SidePanelHandle
+            v-if="effectiveMode === 'split' && !isNarrow"
+            side="right"
+            :open="true"
+            surface="bg"
+            label="Retract document panel"
+            class="right-[calc(100%-1px)]"
+            @toggle="store.setViewMode('canvas')"
+          />
         </div>
+
+        <SidePanelHandle
+          v-if="effectiveMode === 'canvas' && !isNarrow"
+          side="right"
+          :open="false"
+          surface="bg"
+          label="Expand document panel"
+          class="right-[-1px]"
+          @toggle="store.setViewMode('split')"
+        />
       </main>
     </div>
 

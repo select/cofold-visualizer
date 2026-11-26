@@ -35,6 +35,14 @@ export type DetailedKind =
   | 'conditioning'
   | 'atom-dec'
   | 'confidence-heads'
+  | 'token-features'
+  | 'ref-conformers'
+  | 'single-concat'
+  | 'linear-proj'
+  | 'pair-init'
+  | 'recycle-gate'
+  | 'msa-embed'
+  | 'diffusion-sampler'
 
 export interface DetailedBlockSpec {
   kind: DetailedKind
@@ -77,7 +85,7 @@ export interface DataFlowEdge {
 
 export type CalloutTone = 'neutral' | 'blue' | 'purple' | 'green' | 'amber'
 
-export type InteractiveHint = 'cycle' | 'pairformerBlock' | 'diffusionStep'
+export type InteractiveHint = 'cycle'
 
 export interface WalkthroughStep {
   id: string
@@ -110,6 +118,31 @@ export interface WalkthroughStep {
     target: [number, number, number]
   }
   interactiveHint?: InteractiveHint | null
+}
+
+export type InputSourceId = 'dna-sequence' | 'protein-sequence' | 'small-molecule' | 'msa-a3m'
+
+export interface InputSourceSpec {
+  id: InputSourceId
+  label: string
+  shortLabel: string
+  subtitle: string
+  targetBlockId: string
+  color: string
+  formatBadge: string
+  description: string
+}
+
+export type OutputId = 'cif-structure' | 'confidence-scores'
+
+export interface OutputSpec {
+  id: OutputId
+  label: string
+  subtitle: string
+  color: string
+  formatBadge: string
+  description: string
+  sourceBlockIds: string[]
 }
 
 export type ModelStatus = 'available' | 'coming-soon'

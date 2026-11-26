@@ -14,8 +14,6 @@ describe('useVisualizerStore', () => {
     expect(store.totalSteps).toBe(10)
     expect(store.progressPercent).toBe(0)
     expect(store.recycleCycle).toBe(4)
-    expect(store.pairformerBlock).toBe(24)
-    expect(store.diffusionStep).toBe(160)
     expect(store.theme).toBe('light')
     expect(store.detailLevel).toBe('simplified')
   })
@@ -43,23 +41,13 @@ describe('useVisualizerStore', () => {
     expect(store.activeStepIndex).toBe(0)
   })
 
-  it('clamps recycleCycle, pairformerBlock, and diffusionStep within bounds', () => {
+  it('clamps recycleCycle within bounds', () => {
     const store = useVisualizerStore()
 
     store.setRecycleCycle(0)
     expect(store.recycleCycle).toBe(1)
     store.setRecycleCycle(15)
     expect(store.recycleCycle).toBe(10)
-
-    store.setPairformerBlock(-3)
-    expect(store.pairformerBlock).toBe(1)
-    store.setPairformerBlock(100)
-    expect(store.pairformerBlock).toBe(48)
-
-    store.setDiffusionStep(-10)
-    expect(store.diffusionStep).toBe(0)
-    store.setDiffusionStep(500)
-    expect(store.diffusionStep).toBe(200)
   })
 
   it('toggles theme, flow, sidebar, and ignores coming-soon models', () => {
@@ -89,10 +77,10 @@ describe('useVisualizerStore', () => {
     expect(store.detailLevel).toBe('simplified')
     expect(store.expandedBlockIds).toEqual([])
     expect(store.expandedCount).toBe(0)
-    expect(store.expandableBlockIds).toHaveLength(11)
+    expect(store.expandableBlockIds).toHaveLength(19)
 
-    // Non-expandable block should be ignored
-    store.toggleBlockExpanded('input-features')
+    // Non-expandable / unknown block should be ignored
+    store.toggleBlockExpanded('nonexistent-block')
     expect(store.expandedCount).toBe(0)
 
     // Expand one block -> mixed
@@ -109,13 +97,13 @@ describe('useVisualizerStore', () => {
 
     // Expand all -> detailed
     store.expandAllBlocks()
-    expect(store.expandedCount).toBe(11)
+    expect(store.expandedCount).toBe(19)
     expect(store.detailLevel).toBe('detailed')
 
     // Toggle one off -> mixed
     store.toggleBlockExpanded('msa-stack')
     expect(store.isBlockExpanded('msa-stack')).toBe(false)
-    expect(store.expandedCount).toBe(10)
+    expect(store.expandedCount).toBe(18)
     expect(store.detailLevel).toBe('mixed')
 
     // Collapse all -> simplified
@@ -126,7 +114,7 @@ describe('useVisualizerStore', () => {
     // setDetailLevel / toggleDetailLevel delegate to expandAllBlocks / collapseAllBlocks
     store.setDetailLevel('detailed')
     expect(store.detailLevel).toBe('detailed')
-    expect(store.expandedCount).toBe(11)
+    expect(store.expandedCount).toBe(19)
 
     store.toggleDetailLevel()
     expect(store.detailLevel).toBe('simplified')
@@ -134,6 +122,6 @@ describe('useVisualizerStore', () => {
 
     store.toggleDetailLevel()
     expect(store.detailLevel).toBe('detailed')
-    expect(store.expandedCount).toBe(11)
+    expect(store.expandedCount).toBe(19)
   })
 })

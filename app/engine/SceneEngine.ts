@@ -1,13 +1,32 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { DataFlowEdge, FoldingModelSpec, TensorBlock3D } from '~/types/architecture'
+import sampleCifText from '~/assets/examples/7BEA.cif?raw'
+import type {
+  DataFlowEdge,
+  FoldingModelSpec,
+  InputSourceId,
+  OutputId,
+  TensorBlock3D,
+} from '~/types/architecture'
+import { buildCifComplex } from './cifRibbon'
+import { computeExpandedLayout } from './expandedLayout'
 import { buildInPlaceDetailedBlock, type DetailedBlockVisual } from './InPlaceDetailBuilder'
+import {
+  getBlockLabelState,
+  getEdgeLabelState,
+  getExternalLabelState,
+  rectsOverlap,
+  shouldShowAxisTags,
+  shouldShowDetailMiniLabels,
+  type ScreenRect,
+} from './labelVisibility'
 import { MoleculeCloud } from './moleculeCloud'
 import {
   createAxisTagSprite,
   createEdgeLabelSprite,
   createLabelSprite,
   createMsaAlignmentTexture,
+  createPlddtPlotTexture,
   createRecycleLoopBadgeSprite,
   createStageHeaderTexture,
   createTensorMatrixTexture,
@@ -74,12 +93,19 @@ export interface SceneEngineCallbacks {
   onSelectBlock?: (blockId: string | null) => void
   onHoverBlock?: (blockId: string | null) => void
   onDoubleClickBlock?: (blockId: string | null) => void
+  onSelectInputSource?: (inputSourceId: InputSourceId | null) => void
+  onHoverInputSource?: (inputSourceId: InputSourceId | null) => void
+  onSelectOutput?: (outputId: OutputId | null) => void
+  onHoverOutput?: (outputId: OutputId | null) => void
+  onOverviewPauseChange?: (remainingSeconds: number, totalSeconds: number) => void
 }
 
 interface BlockVisual {
   spec: TensorBlock3D
   group: THREE.Group
   simplifiedGroup: THREE.Group
+  docFrameLine: THREE.LineSegments
+  externalInputGroup: THREE.Group | null
   detailedVisual: DetailedBlockVisual | null
   hitMesh: THREE.Mesh
   sliceMeshes: THREE.Mesh[]
@@ -135,27 +161,59 @@ export class SceneEngine {
   private isFlowPlaying = true
   private recycleCycle = 4
   private recycleCycleScrubbed = false
-  private pairformerBlock = 24
-  private diffusionStep = 160
   private selectedBlockId: string | null = null
   private hoveredBlockId: string | null = null
+  private selectedInputSourceId: InputSourceId | null = null
+  private hoveredInputSourceId: InputSourceId | null = null
+  private selectedOutputId: OutputId | null = null
+  private hoveredOutputId: OutputId | null = null
+  private docsOpen = true
+  private hoveredSliceBlockId: string | null = null
   private focusBlockIds = new Set<string>()
   private highlightEdgeIds = new Set<string>()
   private recyclePulseBoost = 0
   private recycleBadgeSprite: THREE.Sprite | null = null
   private recycleBadgeText = ''
+  private recycleBadgeWantsVisible = false
   private externalLabelSprites: THREE.Sprite[] = []
   private overviewWaveTime = 0
   private overviewPauseRemaining = 0
+  private readonly overviewPauseDuration = 3.0
+  private lastReportedPause = 0
   private wasOverviewWave = false
   private lastOverviewPfSlice = -1
   private stageFloorPlates: Array<{
+    title: string
+    padMesh: THREE.Mesh
+    border: THREE.LineSegments
+    headerMesh: THREE.Mesh
     padMat: THREE.MeshBasicMaterial
     borderMat: THREE.LineBasicMaterial
     headerMat: THREE.MeshBasicMaterial
     phase: number
     width: number
+    baseWidth: number
+    blockIds?: string[]
+    followRightOfBlockId?: string
   }> = []
+  private externalOutputVisuals = new Map<
+    OutputId,
+    {
+      group: THREE.Group
+      docFrameLine: THREE.LineSegments
+      materials: THREE.Material[]
+      phase: number
+      arrow: {
+        ribbonMesh: THREE.Mesh
+        outlineLine: THREE.Line
+        ribbonMat: THREE.MeshBasicMaterial
+        outlineMat: THREE.LineBasicMaterial
+      } | null
+    }
+  >()
+  private cifComplexGroup: THREE.Group | null = null
+  private cifComplexGeometries: THREE.BufferGeometry[] = []
+  private cifComplexMaterials: THREE.Material[] = []
   private externalInputVisuals = new Map<
     string,
     {
@@ -208,7 +266,7 @@ export class SceneEngine {
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
-    this.controls.dampingFactor = 0.08
+    this.controls.dampingFactor = 0.28
     this.controls.zoomToCursor = true
     this.controls.minDistance = 4
     this.controls.maxDistance = 165
@@ -274,6 +332,7 @@ export class SceneEngine {
 
   public setExpandedBlocks(ids: string[]) {
     this.expandedBlockIds = new Set(ids)
+    this.applyExpandedLayout()
     this.refreshVisualStates()
   }
 
@@ -324,6 +383,8 @@ export class SceneEngine {
       this.buildRecycleLoopBadge('10x loop')
     }
 
+    this.buildOutputVisual()
+    this.syncStageFloorPlatesAndOutput()
     this.refreshVisualStates()
   }
 
@@ -387,16 +448,46 @@ export class SceneEngine {
         color: 0xe11d48,
         phase: 0.73,
         waveWidth: 0.13,
+        blockIds: [
+          'diffusion-conditioning',
+          'atom-attn-encoder-diff',
+          'diffusion-transformer',
+          'atom-attn-decoder',
+          'denoised-coords',
+        ],
       },
       {
         title: 'Confidence Heads',
-        cx: 45.2,
+        cx: 55.2,
         cz: 0.0,
         width: 12.5,
         depth: 7.5,
         color: 0x16a34a,
         phase: 0.92,
         waveWidth: 0.09,
+        blockIds: ['aux-pairformer', 'confidence-outputs'],
+      },
+      {
+        title: 'External Output · CIF',
+        cx: 41.7,
+        cz: 1.6,
+        width: 4.8,
+        depth: 5.4,
+        color: 0xea580c,
+        phase: 0.85,
+        waveWidth: 0.08,
+        followRightOfBlockId: 'denoised-coords',
+      },
+      {
+        title: 'External Outputs',
+        cx: 60.4,
+        cz: 0.0,
+        width: 5.2,
+        depth: 6.4,
+        color: 0xea580c,
+        phase: 0.96,
+        waveWidth: 0.08,
+        followRightOfBlockId: 'confidence-outputs',
       },
     ]
 
@@ -450,11 +541,18 @@ export class SceneEngine {
       this.modelGroup.add(headerMesh)
 
       this.stageFloorPlates.push({
+        title: st.title,
+        padMesh,
+        border,
+        headerMesh,
         padMat,
         borderMat,
         headerMat,
         phase: st.phase,
         width: st.waveWidth,
+        baseWidth: st.width,
+        blockIds: st.blockIds,
+        followRightOfBlockId: st.followRightOfBlockId,
       })
     }
   }
@@ -475,6 +573,10 @@ export class SceneEngine {
     this.externalLabelSprites = []
     this.stageFloorPlates = []
     this.externalInputVisuals.clear()
+    this.externalOutputVisuals.clear()
+    this.cifComplexGroup = null
+    this.cifComplexGeometries = []
+    this.cifComplexMaterials = []
 
     if (this.moleculeCloud) {
       this.moleculeCloud.dispose()
@@ -535,7 +637,7 @@ export class SceneEngine {
       edgeLines.push(wire)
 
       this.moleculeCloud = new MoleculeCloud()
-      this.moleculeCloud.setDiffusionStep(this.diffusionStep)
+      this.moleculeCloud.setDiffusionStep(160)
       simplifiedGroup.add(this.moleculeCloud.group)
     } else {
       const tex = createTensorMatrixTexture(block.matrixStyle, block.color, this.isDark)
@@ -635,12 +737,15 @@ export class SceneEngine {
       axisTagSprites.push(tagSprite)
     })
 
+    let externalInputGroup: THREE.Group | null = null
     if (
       block.id === 'input-features' ||
       block.id === 'ref-conformers' ||
       block.id === 'msa-embedder'
     ) {
-      this.buildInputSourceVisual(block.id, sx, sy, sz, simplifiedGroup)
+      externalInputGroup = new THREE.Group()
+      this.buildInputSourceVisual(block.id, sx, sy, sz, externalInputGroup)
+      group.add(externalInputGroup)
     }
 
     const detailedVisual = buildInPlaceDetailedBlock(block, this.isDark)
@@ -651,10 +756,27 @@ export class SceneEngine {
       group.add(detailedVisual.group)
     }
 
+    const docFrameBoxGeo = new THREE.BoxGeometry(sx, sy, sz)
+    const docFrameEdgesGeo = new THREE.EdgesGeometry(docFrameBoxGeo)
+    docFrameBoxGeo.dispose()
+    this.disposableGeometries.push(docFrameEdgesGeo)
+    const docFrameMat = new THREE.LineBasicMaterial({
+      color: baseColor,
+      transparent: true,
+      opacity: 0.9,
+    })
+    this.disposableMaterials.push(docFrameMat)
+    const docFrameLine = new THREE.LineSegments(docFrameEdgesGeo, docFrameMat)
+    docFrameLine.scale.set(1.016, 1.016, 1.016)
+    docFrameLine.visible = false
+    simplifiedGroup.add(docFrameLine)
+
     return {
       spec: block,
       group,
       simplifiedGroup,
+      docFrameLine,
+      externalInputGroup,
       detailedVisual,
       hitMesh,
       sliceMeshes,
@@ -667,9 +789,406 @@ export class SceneEngine {
     }
   }
 
+  private getActiveBlockSize(block: BlockVisual): [number, number, number] {
+    if (this.expandedBlockIds.has(block.spec.id) && block.detailedVisual) {
+      return block.detailedVisual.detailSize
+    }
+    return block.spec.size
+  }
+
+  private applyExpandedLayout() {
+    if (this.blockVisuals.size === 0) return
+    const inputs = Array.from(this.blockVisuals.values()).map(v => ({
+      id: v.spec.id,
+      basePosition: v.spec.position,
+      baseSize: v.spec.size,
+      activeSize: this.getActiveBlockSize(v),
+      isExpanded: this.expandedBlockIds.has(v.spec.id) && Boolean(v.detailedVisual),
+    }))
+    const positions = computeExpandedLayout(inputs)
+    for (const [id, pos] of positions) {
+      const visual = this.blockVisuals.get(id)
+      if (visual) {
+        visual.group.position.set(pos[0], pos[1], pos[2])
+        if (visual.externalInputGroup) {
+          const [activeSx] = this.getActiveBlockSize(visual)
+          visual.externalInputGroup.position.x = -(activeSx - visual.spec.size[0]) / 2
+        }
+      }
+    }
+    this.rebuildAllEdgeGeometries()
+    this.syncStageFloorPlatesAndOutput()
+  }
+
+  private buildOutputVisual() {
+    const extBorderColor = this.isDark ? '#fb923c' : '#ea580c'
+    const extArrowColor = this.isDark ? 0xfb923c : 0xea580c
+
+    const makeArrow = (from: THREE.Vector3, to: THREE.Vector3) => {
+      const ribbonMat = new THREE.MeshBasicMaterial({
+        color: extArrowColor,
+        transparent: true,
+        opacity: this.isDark ? 0.34 : 0.4,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+      const outlineMat = new THREE.LineBasicMaterial({
+        color: extArrowColor,
+        transparent: true,
+        opacity: this.isDark ? 0.4 : 0.48,
+      })
+      this.disposableMaterials.push(ribbonMat, outlineMat)
+      const curve = new THREE.CatmullRomCurve3([from, from.clone().lerp(to, 0.5), to])
+      const shaftWidth = 0.42
+      const headWidth = shaftWidth * 1.85
+      const headLength = Math.min(0.82, from.distanceTo(to) * 0.45)
+      const { ribbonGeo, outlineGeo } = this.buildRibbonArrowGeometries(
+        curve,
+        shaftWidth,
+        headWidth,
+        headLength,
+        24,
+        true
+      )
+      this.disposableGeometries.push(ribbonGeo, outlineGeo)
+      const ribbonMesh = new THREE.Mesh(ribbonGeo, ribbonMat)
+      ribbonMesh.renderOrder = 3
+      const outlineLine = new THREE.Line(outlineGeo, outlineMat)
+      outlineLine.renderOrder = 4
+      this.modelGroup.add(ribbonMesh, outlineLine)
+      return { ribbonMesh, outlineLine, ribbonMat, outlineMat }
+    }
+
+    const addOutputLabel = (title: string, sub: string, parent: THREE.Group, y: number) => {
+      const label = createLabelSprite(title, sub, '#ea580c', this.isDark, true, extBorderColor)
+      if (label.material.map) this.disposableTextures.push(label.material.map)
+      this.disposableMaterials.push(label.material)
+      const aspect = (label.userData.aspect as number | undefined) ?? 136 / 768
+      const baseHeightRatio = (label.userData.baseHeightRatio as number | undefined) ?? 136 / 768
+      const h = 7.8 * baseHeightRatio
+      label.scale.set(h / aspect, h, 1)
+      label.position.set(0, y, 0)
+      parent.add(label)
+      this.externalLabelSprites.push(label)
+    }
+
+    // 1. External Output: Predicted 3D Protein Structure (.cif) after SampleDiffusion
+    {
+      const group = new THREE.Group()
+      group.position.set(37.6, 0, 1.6)
+      this.modelGroup.add(group)
+
+      const materials: Array<THREE.MeshStandardMaterial | THREE.LineBasicMaterial> = []
+      const frameGeo = new THREE.BoxGeometry(6.2, 5.8, 5.4)
+      const frameEdges = new THREE.EdgesGeometry(frameGeo)
+      this.disposableGeometries.push(frameGeo, frameEdges)
+
+      const frameMat = new THREE.LineBasicMaterial({
+        color: extArrowColor,
+        transparent: true,
+        opacity: 0.55,
+      })
+      materials.push(frameMat)
+      this.disposableMaterials.push(frameMat)
+      const frameWire = new THREE.LineSegments(frameEdges, frameMat)
+      group.add(frameWire)
+
+      const docFrameMat = new THREE.LineBasicMaterial({
+        color: extArrowColor,
+        transparent: true,
+        opacity: 0.9,
+      })
+      this.disposableMaterials.push(docFrameMat)
+      const docFrameLine = new THREE.LineSegments(frameEdges, docFrameMat)
+      docFrameLine.scale.set(1.024, 1.024, 1.024)
+      docFrameLine.visible = false
+      group.add(docFrameLine)
+
+      // Real 3D protein ribbon + bound ligand (7BEA PD-L1 dimer + TK2 inhibitor) inside the frame
+      const cifComplex = buildCifComplex(sampleCifText, {
+        maxXY: 5.5,
+        maxZ: 5.0,
+        isDark: this.isDark,
+      })
+      this.cifComplexGeometries = [...cifComplex.geometries]
+      this.cifComplexMaterials = [...cifComplex.materials]
+      this.disposableGeometries.push(...cifComplex.geometries)
+      materials.push(...cifComplex.materials)
+      this.disposableMaterials.push(...cifComplex.materials)
+      group.add(cifComplex.complexGroup)
+      this.cifComplexGroup = cifComplex.complexGroup
+
+      const hitGeo = new THREE.BoxGeometry(6.6, 6.2, 5.8)
+      const hitMat = new THREE.MeshBasicMaterial({ visible: false })
+      this.disposableGeometries.push(hitGeo)
+      this.disposableMaterials.push(hitMat)
+      const hitMesh = new THREE.Mesh(hitGeo, hitMat)
+      hitMesh.userData = { outputId: 'cif-structure' }
+      group.add(hitMesh)
+      this.hitTargets.push(hitMesh)
+
+      addOutputLabel('3D Structure (.cif)', 'All-atom coordinates', group, 3.8)
+
+      const arrow = makeArrow(new THREE.Vector3(33.5, 0, 0), new THREE.Vector3(34.4, 0, 1.6))
+      materials.forEach(m => {
+        m.userData.baseOpacity = m.opacity
+      })
+      this.externalOutputVisuals.set('cif-structure', {
+        group,
+        docFrameLine,
+        materials,
+        phase: 0.89,
+        arrow,
+      })
+    }
+
+    // 2. External Output: Confidence Score Plot (pLDDT / PAE) after Confidence Heads
+    {
+      const group = new THREE.Group()
+      group.position.set(54.4, 0, 0)
+      this.modelGroup.add(group)
+
+      const materials: THREE.Material[] = []
+      const plotTex = createPlddtPlotTexture(this.isDark)
+      this.disposableTextures.push(plotTex)
+
+      const cardGeo = new THREE.BoxGeometry(3.2, 2.3, 0.06)
+      const cardEdges = new THREE.EdgesGeometry(cardGeo)
+      this.disposableGeometries.push(cardGeo, cardEdges)
+
+      const sideMat = new THREE.MeshBasicMaterial({
+        color: this.isDark ? 0x1e293b : 0xffffff,
+        transparent: true,
+        opacity: 0.98,
+        toneMapped: false,
+      })
+      const frontMat = new THREE.MeshBasicMaterial({
+        map: plotTex,
+        color: 0xffffff,
+        transparent: true,
+        opacity: 1.0,
+        toneMapped: false,
+      })
+      materials.push(sideMat, frontMat)
+      this.disposableMaterials.push(sideMat, frontMat)
+      const cardMesh = new THREE.Mesh(cardGeo, [
+        sideMat,
+        sideMat,
+        sideMat,
+        sideMat,
+        frontMat,
+        frontMat,
+      ])
+      group.add(cardMesh)
+
+      const edgeMat = new THREE.LineBasicMaterial({
+        color: extArrowColor,
+        transparent: true,
+        opacity: 0.72,
+      })
+      materials.push(edgeMat)
+      this.disposableMaterials.push(edgeMat)
+      cardMesh.add(new THREE.LineSegments(cardEdges, edgeMat))
+
+      const docFrameMat = new THREE.LineBasicMaterial({
+        color: extArrowColor,
+        transparent: true,
+        opacity: 0.9,
+      })
+      this.disposableMaterials.push(docFrameMat)
+      const docFrameLine = new THREE.LineSegments(cardEdges, docFrameMat)
+      docFrameLine.scale.set(1.024, 1.024, 1.05)
+      docFrameLine.visible = false
+      cardMesh.add(docFrameLine)
+
+      const hitGeo = new THREE.BoxGeometry(3.6, 2.8, 1.0)
+      const hitMat = new THREE.MeshBasicMaterial({ visible: false })
+      this.disposableGeometries.push(hitGeo)
+      this.disposableMaterials.push(hitMat)
+      const hitMesh = new THREE.Mesh(hitGeo, hitMat)
+      hitMesh.userData = { outputId: 'confidence-scores' }
+      group.add(hitMesh)
+      this.hitTargets.push(hitMesh)
+
+      addOutputLabel('pLDDT / PAE Scores', 'Confidence metrics (.json)', group, 1.95)
+
+      const arrow = makeArrow(new THREE.Vector3(50.2, 0, 0), new THREE.Vector3(52.7, 0, 0))
+      materials.forEach(m => {
+        m.userData.baseOpacity = m.opacity
+      })
+      this.externalOutputVisuals.set('confidence-scores', {
+        group,
+        docFrameLine,
+        materials,
+        phase: 0.98,
+        arrow,
+      })
+    }
+  }
+
+  private syncStageFloorPlatesAndOutput() {
+    for (const plate of this.stageFloorPlates) {
+      if (plate.blockIds && plate.blockIds.length > 0) {
+        let minX = Infinity
+        let maxX = -Infinity
+        for (const id of plate.blockIds) {
+          const v = this.blockVisuals.get(id)
+          if (!v) continue
+          const [activeSx] = this.getActiveBlockSize(v)
+          minX = Math.min(minX, v.group.position.x - activeSx / 2)
+          maxX = Math.max(maxX, v.group.position.x + activeSx / 2)
+        }
+        if (Number.isFinite(minX) && Number.isFinite(maxX)) {
+          const pad = 1.4
+          const desiredWidth = Math.max(plate.baseWidth, maxX - minX + pad * 2)
+          const cx = (minX + maxX) / 2
+          const scaleX = desiredWidth / plate.baseWidth
+          plate.padMesh.position.x = cx
+          plate.padMesh.scale.x = scaleX
+          plate.border.position.x = cx
+          plate.border.scale.x = scaleX
+          plate.headerMesh.position.x = cx
+        }
+      } else if (plate.followRightOfBlockId === 'denoised-coords') {
+        const v = this.blockVisuals.get('denoised-coords')
+        const auxV = this.blockVisuals.get('aux-pairformer')
+        if (v) {
+          const [activeSx, activeSy] = this.getActiveBlockSize(v)
+          const denoisedRight = v.group.position.x + activeSx / 2
+          const auxLeft = auxV
+            ? auxV.group.position.x - this.getActiveBlockSize(auxV)[0] / 2
+            : denoisedRight + 9.6
+          const cx = (denoisedRight + auxLeft) / 2
+          const cz = 1.6
+          plate.padMesh.position.set(cx, -7.75, cz)
+          plate.border.position.set(cx, -7.74, cz)
+          plate.headerMesh.position.set(cx, -7.73, cz + 5.4 / 2 - 0.85)
+
+          const cifOut = this.externalOutputVisuals.get('cif-structure')
+          if (cifOut) {
+            const centerY = v.group.position.y
+            cifOut.group.position.set(cx, centerY, cz)
+            if (cifOut.arrow) {
+              const start = new THREE.Vector3(
+                denoisedRight + 0.12,
+                centerY - activeSy * 0.12,
+                v.group.position.z
+              )
+              const end = new THREE.Vector3(cx - 3.2, centerY, cz)
+              const mid = start.clone().lerp(end, 0.5)
+              const curve = new THREE.CatmullRomCurve3([start, mid, end])
+              const shaftWidth = 0.42
+              const headWidth = shaftWidth * 1.85
+              const headLength = Math.min(0.82, start.distanceTo(end) * 0.45)
+              const { ribbonGeo, outlineGeo } = this.buildRibbonArrowGeometries(
+                curve,
+                shaftWidth,
+                headWidth,
+                headLength,
+                24,
+                true
+              )
+              cifOut.arrow.ribbonMesh.geometry.dispose()
+              cifOut.arrow.outlineLine.geometry.dispose()
+              cifOut.arrow.ribbonMesh.geometry = ribbonGeo
+              cifOut.arrow.outlineLine.geometry = outlineGeo
+              this.disposableGeometries.push(ribbonGeo, outlineGeo)
+            }
+          }
+        }
+      } else if (plate.followRightOfBlockId === 'confidence-outputs') {
+        const v = this.blockVisuals.get('confidence-outputs')
+        if (v) {
+          const [activeSx] = this.getActiveBlockSize(v)
+          const rightX = v.group.position.x + activeSx / 2
+          const cx = rightX + 4.4
+          plate.padMesh.position.x = cx
+          plate.border.position.x = cx
+          plate.headerMesh.position.x = cx
+
+          const confOut = this.externalOutputVisuals.get('confidence-scores')
+          if (confOut) {
+            confOut.group.position.set(cx, 0, 0)
+            if (confOut.arrow) {
+              const start = new THREE.Vector3(rightX + 0.12, v.group.position.y, v.group.position.z)
+              const end = new THREE.Vector3(cx - 1.75, 0, 0)
+              const mid = start.clone().lerp(end, 0.5)
+              const curve = new THREE.CatmullRomCurve3([start, mid, end])
+              const shaftWidth = 0.42
+              const headWidth = shaftWidth * 1.85
+              const headLength = Math.min(0.82, start.distanceTo(end) * 0.45)
+              const { ribbonGeo, outlineGeo } = this.buildRibbonArrowGeometries(
+                curve,
+                shaftWidth,
+                headWidth,
+                headLength,
+                24,
+                true
+              )
+              confOut.arrow.ribbonMesh.geometry.dispose()
+              confOut.arrow.outlineLine.geometry.dispose()
+              confOut.arrow.ribbonMesh.geometry = ribbonGeo
+              confOut.arrow.outlineLine.geometry = outlineGeo
+              this.disposableGeometries.push(ribbonGeo, outlineGeo)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private rebuildAllEdgeGeometries() {
+    if (!this.currentModel) return
+    const edgePorts = this.computeEdgePortOffsets(this.currentModel.edges)
+    for (const ev of this.edgeVisuals) {
+      if (ev.spec.id === 'e-pf-pair-to-single') continue
+      const fromBlock = this.blockVisuals.get(ev.spec.from)
+      const toBlock = this.blockVisuals.get(ev.spec.to)
+      if (!fromBlock || !toBlock) continue
+      const ports = edgePorts.get(ev.spec.id) ?? { startDy: 0, endDy: 0 }
+      ev.curve = this.buildEdgeCurve(ev.spec, fromBlock, toBlock, ports.startDy, ports.endDy)
+      const shaftWidth = this.getEdgeWidth(ev.spec.kind)
+      const headWidth = shaftWidth * 1.85
+      const headLength = 0.95
+      const segments = ev.spec.kind === 'recycle' ? 96 : 64
+      const hasArrowhead = ev.spec.id !== 'e-recycle-arc-pair'
+      const { ribbonGeo, outlineGeo } = this.buildRibbonArrowGeometries(
+        ev.curve,
+        shaftWidth,
+        headWidth,
+        headLength,
+        segments,
+        hasArrowhead
+      )
+      ev.ribbonMesh.geometry.dispose()
+      ev.ribbonMesh.geometry = ribbonGeo
+      ev.outlineLine.geometry.dispose()
+      ev.outlineLine.geometry = outlineGeo
+
+      if (ev.labelSprite) {
+        const midPt = ev.curve.getPointAt(0.5)
+        const tan = ev.curve.getTangentAt(0.5).normalize()
+        const normal = new THREE.Vector3(-tan.y, tan.x, 0)
+        if (normal.lengthSq() < 1e-4) normal.set(0, 1, 0)
+        normal.normalize()
+        if (normal.y < 0) normal.negate()
+        const extraOffset =
+          ev.spec.id === 'e-diff-cond-to-atom-enc' || ev.spec.id === 'e-diff-cond-to-dit'
+            ? 0.9
+            : 0.65
+        ev.labelSprite.position.set(
+          midPt.x + normal.x * extraOffset * 0.45,
+          midPt.y + Math.max(0.55, normal.y * extraOffset),
+          midPt.z + 0.25
+        )
+      }
+    }
+    this.updateDynamicPairBiasEdge()
+  }
+
   private anchorToBlockFace(block: BlockVisual, targetPos: THREE.Vector3): THREE.Vector3 {
     const center = block.group.position
-    const [sx, sy, sz] = block.spec.size
+    const [sx, sy, sz] = this.getActiveBlockSize(block)
     const dir = targetPos.clone().sub(center)
     if (dir.lengthSq() < 1e-6) return center.clone()
 
@@ -769,6 +1288,22 @@ export class SceneEngine {
 
     const externalBorderColor = this.isDark ? '#fb923c' : '#ea580c'
     const externalArrowColor = this.isDark ? 0xfb923c : 0xea580c
+
+    const addInputHitBox = (
+      inputSourceId: InputSourceId,
+      center: THREE.Vector3,
+      size: [number, number, number]
+    ) => {
+      const geo = new THREE.BoxGeometry(size[0], size[1], size[2])
+      const mat = new THREE.MeshBasicMaterial({ visible: false })
+      this.disposableGeometries.push(geo)
+      this.disposableMaterials.push(mat)
+      const hitMesh = new THREE.Mesh(geo, mat)
+      hitMesh.position.copy(center)
+      hitMesh.userData = { inputSourceId }
+      parent.add(hitMesh)
+      this.hitTargets.push(hitMesh)
+    }
 
     const addExternalLabel = (text: string, accent: string, pos: THREE.Vector3) => {
       const sprite = createLabelSprite(text, '', accent, this.isDark, true, externalBorderColor)
@@ -927,6 +1462,8 @@ export class SceneEngine {
       )
       addExternalLabel('DNA', '#3b82f6', new THREE.Vector3(dnaX, 2.05, 0))
       addExternalLabel('Protein Seq', '#22c55e', new THREE.Vector3(-2.85, 2.25, 0))
+      addInputHitBox('dna-sequence', new THREE.Vector3(dnaX, 0.25, 0), [1.7, 4.2, 1.7])
+      addInputHitBox('protein-sequence', new THREE.Vector3(-2.85, 0.3, 0), [1.5, 4.4, 1.5])
     } else if (blockId === 'ref-conformers') {
       // Small molecule 3D ligand + element feature matrix on Ref Atoms
       const elemColors = [0x64748b, 0x3b82f6, 0xef4444, 0xeab308]
@@ -1009,6 +1546,7 @@ export class SceneEngine {
         )
       )
       addExternalLabel('Small Molecule', '#0ea5e9', new THREE.Vector3(cx, -1.55, 0))
+      addInputHitBox('small-molecule', new THREE.Vector3(cx - 0.2, -0.15, 0), [3.1, 3.2, 1.4])
     } else if (blockId === 'msa-embedder') {
       // External ClustalX-style MSA alignment sheet feeding into MSA Embed
       const msaTex = createMsaAlignmentTexture(this.isDark)
@@ -1047,6 +1585,7 @@ export class SceneEngine {
         )
       )
       addExternalLabel('MSA', '#06b6d4', new THREE.Vector3(-4.3, 3.0, 0))
+      addInputHitBox('msa-a3m', new THREE.Vector3(-4.3, 2.15, 0), [2.5, 2.3, 0.8])
     }
 
     this.externalInputVisuals.set(blockId, {
@@ -1057,6 +1596,9 @@ export class SceneEngine {
   }
 
   private getBlockRightFaceX(block: BlockVisual): number {
+    if (this.expandedBlockIds.has(block.spec.id) && block.detailedVisual) {
+      return block.group.position.x + block.detailedVisual.detailSize[0] / 2
+    }
     if (block.sliceMeshes.length > 0) {
       const lastSlice = block.sliceMeshes[block.sliceMeshes.length - 1]!
       const sx = block.spec.size[0]
@@ -1274,18 +1816,51 @@ export class SceneEngine {
       fromBlock.group.position.z
     )
     const leftCenter = new THREE.Vector3(
-      toBlock.group.position.x - toBlock.spec.size[0] / 2,
+      toBlock.group.position.x - this.getActiveBlockSize(toBlock)[0] / 2,
       toBlock.group.position.y + endDy,
       toBlock.group.position.z
     )
 
     if (edge.id === 'e-pf-pair-to-aux') {
-      const pts = SceneEngine.sampleUShapeEaseInOutCubic(
+      const enterX = rightCenter.x + 5.8
+      const exitX = leftCenter.x - 5.2
+      const lowY = -4.6
+      const lowZ = -0.4
+      const p1 = new THREE.Vector3(enterX, lowY, lowZ)
+      const p2 = new THREE.Vector3(exitX, lowY, lowZ)
+
+      const startBezier = new THREE.CubicBezierCurve3(
         rightCenter,
-        new THREE.Vector3(rightCenter.x + 5.8, -5.0, -0.4),
-        new THREE.Vector3(leftCenter.x - 5.5, -5.0, -0.4),
+        new THREE.Vector3(rightCenter.x + 2.4, rightCenter.y, rightCenter.z),
+        new THREE.Vector3(enterX - 2.4, lowY, lowZ),
+        p1
+      )
+      const endBezier = new THREE.CubicBezierCurve3(
+        p2,
+        new THREE.Vector3(leftCenter.x - 2.2, lowY, lowZ),
+        new THREE.Vector3(leftCenter.x - 1.6, leftCenter.y, leftCenter.z),
         leftCenter
       )
+
+      const pts: THREE.Vector3[] = []
+      for (let i = 0; i <= 14; i++) pts.push(startBezier.getPoint(i / 14))
+      for (let i = 1; i < 6; i++) pts.push(p1.clone().lerp(p2, i / 6))
+      for (let i = 0; i <= 16; i++) pts.push(endBezier.getPoint(i / 16))
+      return new THREE.CatmullRomCurve3(pts, false, 'centripetal')
+    }
+
+    if (edge.id === 'e-coords-to-aux') {
+      const archY = Math.max(rightCenter.y, leftCenter.y) + 6.4
+      const bezier = new THREE.CubicBezierCurve3(
+        rightCenter,
+        new THREE.Vector3(rightCenter.x + 2.6, archY, rightCenter.z),
+        new THREE.Vector3(leftCenter.x - 2.6, archY, leftCenter.z),
+        leftCenter
+      )
+      const pts: THREE.Vector3[] = []
+      for (let i = 0; i <= 28; i++) {
+        pts.push(bezier.getPoint(i / 28))
+      }
       return new THREE.CatmullRomCurve3(pts, false, 'centripetal')
     }
 
@@ -1559,12 +2134,116 @@ export class SceneEngine {
 
   public setSelectedBlock(blockId: string | null) {
     this.selectedBlockId = blockId
+    if (blockId !== null) {
+      this.selectedInputSourceId = null
+      this.selectedOutputId = null
+    }
     this.refreshVisualStates()
   }
 
   public setHoveredBlock(blockId: string | null) {
     if (this.hoveredBlockId === blockId) return
     this.hoveredBlockId = blockId
+    if (blockId !== null) {
+      this.hoveredInputSourceId = null
+      this.hoveredOutputId = null
+    }
+    this.refreshVisualStates()
+  }
+
+  public setSelectedInputSource(inputSourceId: InputSourceId | null) {
+    this.selectedInputSourceId = inputSourceId
+    if (inputSourceId !== null) {
+      this.selectedBlockId = null
+      this.selectedOutputId = null
+    }
+    this.refreshVisualStates()
+  }
+
+  public setHoveredInputSource(inputSourceId: InputSourceId | null) {
+    if (this.hoveredInputSourceId === inputSourceId) return
+    this.hoveredInputSourceId = inputSourceId
+    if (inputSourceId !== null) {
+      this.hoveredBlockId = null
+      this.hoveredOutputId = null
+    }
+    this.refreshVisualStates()
+  }
+
+  public setSelectedOutput(outputId: OutputId | null) {
+    this.selectedOutputId = outputId
+    if (outputId !== null) {
+      this.selectedBlockId = null
+      this.selectedInputSourceId = null
+    }
+    this.refreshVisualStates()
+  }
+
+  public focusOutput(outputId: OutputId) {
+    const outVis = this.externalOutputVisuals.get(outputId)
+    if (!outVis) return
+    const { x, y, z } = outVis.group.position
+    if (outputId === 'cif-structure') {
+      this.flyToCamera([x + 2.0, y + 3.2, z + 17.0], [x, y, z])
+    } else {
+      this.flyToCamera([x + 2.5, y + 2.5, z + 16.5], [x, y, z])
+    }
+  }
+
+  public setCifText(cifText: string) {
+    const cifOut = this.externalOutputVisuals.get('cif-structure')
+    if (!cifOut) return
+
+    const prevRotY = this.cifComplexGroup?.rotation.y ?? 0
+    if (this.cifComplexGroup) {
+      cifOut.group.remove(this.cifComplexGroup)
+    }
+
+    const oldGeos = new Set(this.cifComplexGeometries)
+    const oldMats = new Set(this.cifComplexMaterials)
+    this.cifComplexGeometries.forEach(g => g.dispose())
+    this.cifComplexMaterials.forEach(m => m.dispose())
+    for (let i = this.disposableGeometries.length - 1; i >= 0; i--) {
+      if (oldGeos.has(this.disposableGeometries[i]!)) this.disposableGeometries.splice(i, 1)
+    }
+    for (let i = this.disposableMaterials.length - 1; i >= 0; i--) {
+      if (oldMats.has(this.disposableMaterials[i]!)) this.disposableMaterials.splice(i, 1)
+    }
+    for (let i = cifOut.materials.length - 1; i >= 0; i--) {
+      if (oldMats.has(cifOut.materials[i]!)) cifOut.materials.splice(i, 1)
+    }
+
+    const cifComplex = buildCifComplex(cifText, {
+      maxXY: 5.5,
+      maxZ: 5.0,
+      isDark: this.isDark,
+    })
+    cifComplex.complexGroup.rotation.y = prevRotY
+    this.cifComplexGeometries = [...cifComplex.geometries]
+    this.cifComplexMaterials = [...cifComplex.materials]
+    cifComplex.materials.forEach(m => {
+      m.userData.baseOpacity = m.opacity
+    })
+    this.disposableGeometries.push(...cifComplex.geometries)
+    this.disposableMaterials.push(...cifComplex.materials)
+    cifOut.materials.push(...cifComplex.materials)
+    cifOut.group.add(cifComplex.complexGroup)
+    this.cifComplexGroup = cifComplex.complexGroup
+  }
+
+  public setHoveredOutput(outputId: OutputId | null) {
+    if (this.hoveredOutputId === outputId) return
+    this.hoveredOutputId = outputId
+    if (outputId !== null) {
+      this.hoveredBlockId = null
+      this.hoveredInputSourceId = null
+    }
+    this.refreshVisualStates()
+  }
+
+  public setDocsOpen(open: boolean) {
+    if (this.docsOpen === open) return
+    this.docsOpen = open
     this.refreshVisualStates()
   }
 
@@ -1580,17 +2259,6 @@ export class SceneEngine {
       this.recyclePulseBoost = 1.0
       this.updateRecycleBadge()
     }
-  }
-
-  public setPairformerBlock(block: number) {
-    this.pairformerBlock = block
-    this.refreshVisualStates()
-  }
-
-  public setDiffusionStep(step: number) {
-    this.diffusionStep = step
-    this.moleculeCloud?.setDiffusionStep(step)
-    this.refreshVisualStates()
   }
 
   private applyAspectFraming() {
@@ -1617,7 +2285,12 @@ export class SceneEngine {
     if (!visual) return
     const { x: bx, y: by, z: bz } = visual.group.position
     const [sx, sy] = visual.spec.size
-    if (this.expandedBlockIds.has(blockId) && sx < 3.5) {
+    if (this.expandedBlockIds.has(blockId) && visual.detailedVisual) {
+      const [dsx, dsy, dsz] = visual.detailedVisual.detailSize
+      const dist = Math.max(8.5, Math.max(dsx * 1.35, dsy * 2.35))
+      const zDist = Math.max(dist, dsz * 0.72 + 6.0)
+      this.flyToCamera([bx + zDist * 0.22, by + dist * 0.28, bz + zDist], [bx, by, bz])
+    } else if (this.expandedBlockIds.has(blockId) && sx < 3.5) {
       const dist = Math.max(5.8, Math.max(sx, sy) * 2.35)
       this.flyToCamera([bx + dist * 0.24, by + dist * 0.32, bz + dist], [bx, by, bz])
     } else {
@@ -1625,7 +2298,7 @@ export class SceneEngine {
     }
   }
 
-  private updateDynamicPairBiasEdge() {
+  private updateDynamicPairBiasEdge(pairformerBlock = 24) {
     const ev = this.edgeVisuals.find(e => e.spec.id === 'e-pf-pair-to-single')
     const pairVisual = this.blockVisuals.get('pairformer-pair')
     const singleVisual = this.blockVisuals.get('pairformer-single')
@@ -1636,7 +2309,7 @@ export class SceneEngine {
 
     const activeIdx = Math.min(
       sliceCount - 1,
-      Math.max(0, Math.round(((this.pairformerBlock - 1) / 47) * (sliceCount - 1)))
+      Math.max(0, Math.round(((pairformerBlock - 1) / 47) * (sliceCount - 1)))
     )
     const activeMesh = pairVisual.sliceMeshes[activeIdx]!
     const activeX = pairVisual.group.position.x + activeMesh.position.x
@@ -1696,12 +2369,12 @@ export class SceneEngine {
       if (id === 'pairformer-pair' || id === 'pairformer-single') {
         activeSliceIdx = Math.min(
           sliceCount - 1,
-          Math.max(0, Math.round(((this.pairformerBlock - 1) / 47) * (sliceCount - 1)))
+          Math.max(0, Math.round((23 / 47) * (sliceCount - 1)))
         )
       } else if (id === 'diffusion-transformer') {
         activeSliceIdx = Math.min(
           sliceCount - 1,
-          Math.max(0, Math.round((this.diffusionStep / 200) * (sliceCount - 1)))
+          Math.max(0, Math.round((160 / 200) * (sliceCount - 1)))
         )
       }
 
@@ -1742,6 +2415,9 @@ export class SceneEngine {
       })
 
       const isExpanded = this.expandedBlockIds.has(id)
+      const isDocTarget = this.docsOpen && id === this.selectedBlockId
+      visual.docFrameLine.visible = isDocTarget && !isExpanded
+
       const hideTitleForHudPill = isSelected && Boolean(visual.spec.detailedSpec)
       visual.labelSprite.visible = !hideTitleForHudPill
       visual.labelSprite.material.opacity = isActiveLabel ? 1.0 : unfocusedLabelOpacity
@@ -1764,12 +2440,22 @@ export class SceneEngine {
         visual.simplifiedGroup.visible = !isExpanded
         visual.detailedVisual.group.visible = isExpanded
         if (isExpanded) {
-          visual.detailedVisual.setHighlighted(isSelected, isHovered, isFocused, this.isDark)
+          visual.detailedVisual.setHighlighted(
+            isSelected,
+            isHovered,
+            isFocused,
+            this.isDark,
+            isDocTarget
+          )
           visual.detailedVisual.setLabelsVisible(
             isExpanded && (isSelected || isHovered || isFocused)
           )
         }
       }
+    }
+
+    for (const [outId, outVis] of this.externalOutputVisuals) {
+      outVis.docFrameLine.visible = this.docsOpen && this.selectedOutputId === outId
     }
 
     this.updateDynamicPairBiasEdge()
@@ -1875,22 +2561,30 @@ export class SceneEngine {
     if (!sprite) return
 
     if (isOverviewMode || isRecyclingChapter || isRecycleBlockSelected) {
+      this.recycleBadgeWantsVisible = true
       sprite.visible = true
       sprite.material.opacity = 1.0
     } else if (isTrunkChapter) {
+      this.recycleBadgeWantsVisible = true
       sprite.visible = true
       sprite.material.opacity = this.isDark ? 0.48 : 0.55
     } else {
+      this.recycleBadgeWantsVisible = false
       sprite.visible = false
     }
   }
 
-  private updateLabelScales() {
-    if (!this.recycleBadgeSprite || !this.recycleBadgeSprite.visible) return
+  private updateLabelScales(targetDist: number) {
+    if (!this.recycleBadgeSprite) return
+    const showForZoom =
+      this.recycleBadgeWantsVisible &&
+      (targetDist >= 14 || this.selectedBlockId === 'trunk-recycle-gate')
+    this.recycleBadgeSprite.visible = showForZoom
+    if (!showForZoom) return
     this.recycleBadgeSprite.getWorldPosition(this.scratchVec)
     const dist = this.camera.position.distanceTo(this.scratchVec)
     const aspect = (this.recycleBadgeSprite.userData.aspect as number | undefined) ?? 2.6
-    const s = THREE.MathUtils.clamp(dist * 0.054, 1.8, 4.3)
+    const s = THREE.MathUtils.clamp(dist * 0.054, 0.9, 4.3)
     this.recycleBadgeSprite.scale.set(s, s / aspect, 1)
   }
 
@@ -1902,16 +2596,80 @@ export class SceneEngine {
     this.cameraFlying = false
   }
 
+  private getVisibleStackHitTargets(): THREE.Object3D[] {
+    const targets: THREE.Object3D[] = []
+    for (const id of this.expandedBlockIds) {
+      const v = this.blockVisuals.get(id)
+      if (!v?.detailedVisual || v.detailedVisual.stackCount <= 1) continue
+      for (const m of v.detailedVisual.stackHitMeshes) {
+        if (m.visible) targets.push(m)
+      }
+    }
+    return targets
+  }
+
+  private clearHoveredSlice() {
+    if (!this.hoveredSliceBlockId) return
+    this.blockVisuals.get(this.hoveredSliceBlockId)?.detailedVisual?.setHoveredSlice(null)
+    this.hoveredSliceBlockId = null
+  }
+
+  private isObjectVisibleInHierarchy(obj: THREE.Object3D): boolean {
+    let cur: THREE.Object3D | null = obj
+    while (cur) {
+      if (!cur.visible) return false
+      cur = cur.parent
+    }
+    return true
+  }
+
   private readonly handlePointerMove = (e: PointerEvent) => {
     const rect = this.renderer.domElement.getBoundingClientRect()
     this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
     this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
 
     this.raycaster.setFromCamera(this.pointer, this.camera)
-    const hits = this.raycaster.intersectObjects(this.hitTargets, false)
-    const hitId = (hits[0]?.object.userData?.blockId as string | undefined) ?? null
+    const stackTargets = this.getVisibleStackHitTargets()
+    const stackHits =
+      stackTargets.length > 0 ? this.raycaster.intersectObjects(stackTargets, false) : []
+    const sliceHit = stackHits[0]
+    if (sliceHit) {
+      const hitId = sliceHit.object.userData?.blockId as string | undefined
+      const sliceIdx = sliceHit.object.userData?.stackSliceIndex as number | undefined
+      if (hitId && typeof sliceIdx === 'number') {
+        if (this.hoveredSliceBlockId && this.hoveredSliceBlockId !== hitId) {
+          this.clearHoveredSlice()
+        }
+        this.hoveredSliceBlockId = hitId
+        this.blockVisuals.get(hitId)?.detailedVisual?.setHoveredSlice(sliceIdx)
+        this.renderer.domElement.style.cursor = 'pointer'
+        if (hitId !== this.hoveredBlockId) {
+          this.setHoveredBlock(hitId)
+          this.callbacks.onHoverBlock?.(hitId)
+        }
+        return
+      }
+    }
 
-    this.renderer.domElement.style.cursor = hitId ? 'pointer' : 'grab'
+    this.clearHoveredSlice()
+    const hits = this.raycaster
+      .intersectObjects(this.hitTargets, false)
+      .filter(h => this.isObjectVisibleInHierarchy(h.object))
+    const topHit = hits[0]?.object
+    const hitInputId = (topHit?.userData?.inputSourceId as InputSourceId | undefined) ?? null
+    const hitOutputId = (topHit?.userData?.outputId as OutputId | undefined) ?? null
+    const hitId =
+      hitInputId || hitOutputId ? null : ((topHit?.userData?.blockId as string | undefined) ?? null)
+
+    this.renderer.domElement.style.cursor = hitId || hitInputId || hitOutputId ? 'pointer' : 'grab'
+    if (hitInputId !== this.hoveredInputSourceId) {
+      this.setHoveredInputSource(hitInputId)
+      this.callbacks.onHoverInputSource?.(hitInputId)
+    }
+    if (hitOutputId !== this.hoveredOutputId) {
+      this.setHoveredOutput(hitOutputId)
+      this.callbacks.onHoverOutput?.(hitOutputId)
+    }
     if (hitId !== this.hoveredBlockId) {
       this.setHoveredBlock(hitId)
       this.callbacks.onHoverBlock?.(hitId)
@@ -1932,15 +2690,67 @@ export class SceneEngine {
     this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
 
     this.raycaster.setFromCamera(this.pointer, this.camera)
-    const hits = this.raycaster.intersectObjects(this.hitTargets, false)
-    const hitId = (hits[0]?.object.userData?.blockId as string | undefined) ?? null
-    this.callbacks.onSelectBlock?.(hitId)
+    const stackTargets = this.getVisibleStackHitTargets()
+    const stackHits =
+      stackTargets.length > 0 ? this.raycaster.intersectObjects(stackTargets, false) : []
+    const sliceHit = stackHits[0]
+    if (sliceHit) {
+      const hitId = sliceHit.object.userData?.blockId as string | undefined
+      const sliceIdx = sliceHit.object.userData?.stackSliceIndex as number | undefined
+      if (hitId && typeof sliceIdx === 'number') {
+        if (sliceIdx === 0) {
+          this.callbacks.onSelectBlock?.(hitId)
+          return
+        }
+        const dv = this.blockVisuals.get(hitId)?.detailedVisual
+        if (dv && dv.stackCount > 1) {
+          dv.setStackMulti(!dv.isStackMulti)
+          dv.setHoveredSlice(null)
+          this.hoveredSliceBlockId = null
+          this.applyExpandedLayout()
+          this.refreshVisualStates()
+          return
+        }
+      }
+    }
+
+    const hits = this.raycaster
+      .intersectObjects(this.hitTargets, false)
+      .filter(h => this.isObjectVisibleInHierarchy(h.object))
+    const topHit = hits[0]?.object
+    const hitInputId = (topHit?.userData?.inputSourceId as InputSourceId | undefined) ?? null
+    if (hitInputId) {
+      this.callbacks.onSelectInputSource?.(hitInputId)
+      return
+    }
+    const hitOutputId = (topHit?.userData?.outputId as OutputId | undefined) ?? null
+    if (hitOutputId) {
+      this.callbacks.onSelectOutput?.(hitOutputId)
+      return
+    }
+    const hitId = (topHit?.userData?.blockId as string | undefined) ?? null
+    if (hitId) {
+      this.callbacks.onSelectBlock?.(hitId)
+    } else {
+      this.callbacks.onSelectBlock?.(null)
+      this.callbacks.onSelectInputSource?.(null)
+      this.callbacks.onSelectOutput?.(null)
+    }
   }
 
   private readonly handlePointerLeave = () => {
+    this.clearHoveredSlice()
     if (this.hoveredBlockId !== null) {
       this.setHoveredBlock(null)
       this.callbacks.onHoverBlock?.(null)
+    }
+    if (this.hoveredInputSourceId !== null) {
+      this.setHoveredInputSource(null)
+      this.callbacks.onHoverInputSource?.(null)
+    }
+    if (this.hoveredOutputId !== null) {
+      this.setHoveredOutput(null)
+      this.callbacks.onHoverOutput?.(null)
     }
   }
 
@@ -1980,24 +2790,51 @@ export class SceneEngine {
     this.controls.update()
 
     this.moleculeCloud?.update(dt)
+    if (this.cifComplexGroup) {
+      this.cifComplexGroup.rotation.y += dt * 0.18
+    }
 
+    const targetDist = this.camera.position.distanceTo(this.controls.target)
     const hasFocus = this.focusBlockIds.size > 0
-    const isOverviewMode = !hasFocus && this.selectedBlockId === null
+    const isOverviewMode =
+      !hasFocus &&
+      this.selectedBlockId === null &&
+      this.selectedInputSourceId === null &&
+      this.selectedOutputId === null &&
+      targetDist >= 22
     const isOverviewWave = isOverviewMode && this.isFlowPlaying
 
     if (isOverviewWave) {
       if (this.overviewPauseRemaining > 0) {
         this.overviewPauseRemaining = Math.max(0, this.overviewPauseRemaining - dt)
+        this.lastReportedPause = this.overviewPauseRemaining
+        this.callbacks.onOverviewPauseChange?.(
+          this.overviewPauseRemaining,
+          this.overviewPauseDuration
+        )
       } else {
+        if (this.lastReportedPause > 0) {
+          this.lastReportedPause = 0
+          this.callbacks.onOverviewPauseChange?.(0, this.overviewPauseDuration)
+        }
         this.overviewWaveTime += dt / 16.0
         if (this.overviewWaveTime >= 1.0) {
           this.overviewWaveTime = 0
-          this.overviewPauseRemaining = 2.0
+          this.overviewPauseRemaining = this.overviewPauseDuration
+          this.lastReportedPause = this.overviewPauseRemaining
+          this.callbacks.onOverviewPauseChange?.(
+            this.overviewPauseRemaining,
+            this.overviewPauseDuration
+          )
         }
       }
     } else if (this.wasOverviewWave) {
       this.overviewPauseRemaining = 0
-      this.moleculeCloud?.setDiffusionStep(this.diffusionStep)
+      if (this.lastReportedPause > 0) {
+        this.lastReportedPause = 0
+        this.callbacks.onOverviewPauseChange?.(0, this.overviewPauseDuration)
+      }
+      this.moleculeCloud?.setDiffusionStep(160)
       for (const plate of this.stageFloorPlates) {
         plate.padMat.opacity = this.isDark ? 0.06 : 0.045
         plate.borderMat.opacity = this.isDark ? 0.26 : 0.22
@@ -2008,6 +2845,15 @@ export class SceneEngine {
         for (const a of ext.arrows) {
           a.ribbonMat.opacity = this.isDark ? 0.34 : 0.4
           a.outlineMat.opacity = this.isDark ? 0.4 : 0.48
+        }
+      }
+      for (const out of this.externalOutputVisuals.values()) {
+        for (const m of out.materials) {
+          m.opacity = (m.userData.baseOpacity as number | undefined) ?? 1.0
+        }
+        if (out.arrow) {
+          out.arrow.ribbonMat.opacity = this.isDark ? 0.34 : 0.4
+          out.arrow.outlineMat.opacity = this.isDark ? 0.4 : 0.48
         }
       }
       this.refreshVisualStates()
@@ -2073,6 +2919,28 @@ export class SceneEngine {
           a.outlineMat.opacity = outOp
         }
       }
+      for (const out of this.externalOutputVisuals.values()) {
+        const oGlow = waveGlow(out.phase, 0.07)
+        const matScale = THREE.MathUtils.lerp(this.isDark ? 0.28 : 0.22, 1.0, oGlow)
+        const arrOp = THREE.MathUtils.lerp(
+          this.isDark ? 0.1 : 0.09,
+          this.isDark ? 0.84 : 0.86,
+          oGlow
+        )
+        const outOp = THREE.MathUtils.lerp(
+          this.isDark ? 0.14 : 0.14,
+          this.isDark ? 0.92 : 0.95,
+          oGlow
+        )
+        for (const m of out.materials) {
+          const baseOp = (m.userData.baseOpacity as number | undefined) ?? 1.0
+          m.opacity = baseOp * matScale
+        }
+        if (out.arrow) {
+          out.arrow.ribbonMat.opacity = arrOp
+          out.arrow.outlineMat.opacity = outOp
+        }
+      }
     }
 
     const animPfFrac = inTrunkLoop
@@ -2110,10 +2978,7 @@ export class SceneEngine {
           )
           if (id === 'pairformer-pair' && activeSliceIdx !== this.lastOverviewPfSlice) {
             this.lastOverviewPfSlice = activeSliceIdx
-            const saved = this.pairformerBlock
-            this.pairformerBlock = 1 + Math.round(animPfFrac * 47)
-            this.updateDynamicPairBiasEdge()
-            this.pairformerBlock = saved
+            this.updateDynamicPairBiasEdge(1 + Math.round(animPfFrac * 47))
           }
         } else if (id === 'diffusion-transformer') {
           activeSliceIdx = Math.min(
@@ -2143,19 +3008,47 @@ export class SceneEngine {
         visual.group.getWorldPosition(this.scratchVec)
         const camDist = this.camera.position.distanceTo(this.scratchVec)
         visual.detailedVisual.setLabelsVisible(
-          id === this.selectedBlockId || id === this.hoveredBlockId || isFocused || camDist < 16
+          shouldShowDetailMiniLabels({
+            camDist,
+            isSelected: id === this.selectedBlockId,
+            isHovered: id === this.hoveredBlockId,
+            isFocused,
+          })
         )
         visual.detailedVisual.updateLabelScales(camDist)
       }
-      const isActiveLabel = id === this.selectedBlockId || id === this.hoveredBlockId || isFocused
-      const hideTitleForHudPill = id === this.selectedBlockId && Boolean(visual.spec.detailedSpec)
-      const wantsVisible = !hideTitleForHudPill
 
-      if (wantsVisible) {
-        visual.labelSprite.getWorldPosition(this.scratchVec)
-        const dist = this.camera.position.distanceTo(this.scratchVec)
-        const useCompact = isOverviewMode && dist > 36 && id !== this.hoveredBlockId
+      visual.group.getWorldPosition(this.scratchVec)
+      const blockDist = this.camera.position.distanceTo(this.scratchVec)
+      const isExpanded = this.expandedBlockIds.has(id)
+      const showAxisTags = shouldShowAxisTags({
+        dist: blockDist,
+        isExpanded,
+        isSelected: id === this.selectedBlockId,
+        isHovered: id === this.hoveredBlockId,
+        hasFocus,
+        isFocused,
+        focusBlockCount: this.focusBlockIds.size,
+      })
+      for (const tag of visual.axisTagSprites) {
+        tag.visible = showAxisTags
+      }
 
+      visual.labelSprite.getWorldPosition(this.scratchVec)
+      const dist = this.camera.position.distanceTo(this.scratchVec)
+      const labelState = getBlockLabelState({
+        dist,
+        targetDist,
+        isOverviewMode,
+        isSelected: id === this.selectedBlockId,
+        isHovered: id === this.hoveredBlockId,
+        isFocused,
+        isExpanded,
+        hasDetailedSpec: Boolean(visual.spec.detailedSpec),
+      })
+
+      if (labelState.mode !== 'hidden') {
+        const useCompact = labelState.mode === 'compact'
         visual.labelSprite.visible = !useCompact
         visual.compactLabelSprite.visible = useCompact
 
@@ -2166,8 +3059,7 @@ export class SceneEngine {
         const baseHeightRatio =
           (activeSprite.userData.baseHeightRatio as number | undefined) ??
           (useCompact ? 136 / 768 : 200 / 768)
-        const refWidth = isActiveLabel ? THREE.MathUtils.clamp(dist * 0.115, 3.4, 7.8) : 2.8
-        const h = refWidth * baseHeightRatio
+        const h = labelState.refWidth * baseHeightRatio
         activeSprite.scale.set(h / aspect, h, 1)
       } else {
         visual.labelSprite.visible = false
@@ -2178,14 +3070,41 @@ export class SceneEngine {
     for (const sprite of this.externalLabelSprites) {
       sprite.getWorldPosition(this.scratchVec)
       const dist = this.camera.position.distanceTo(this.scratchVec)
-      const aspect = (sprite.userData.aspect as number | undefined) ?? 136 / 768
-      const baseHeightRatio = (sprite.userData.baseHeightRatio as number | undefined) ?? 136 / 768
-      const refWidth = THREE.MathUtils.clamp(dist * 0.115, 3.4, 7.8)
-      const h = refWidth * baseHeightRatio
-      sprite.scale.set(h / aspect, h, 1)
+      const extState = getExternalLabelState({ dist, targetDist })
+      sprite.visible = extState.visible
+      if (extState.visible) {
+        const aspect = (sprite.userData.aspect as number | undefined) ?? 136 / 768
+        const baseHeightRatio = (sprite.userData.baseHeightRatio as number | undefined) ?? 136 / 768
+        const h = extState.refWidth * baseHeightRatio
+        sprite.scale.set(h / aspect, h, 1)
+      }
     }
 
-    this.updateLabelScales()
+    const hasHighlightedEdges = this.highlightEdgeIds.size > 0
+    const inspectingBlock = this.selectedBlockId !== null
+    const isSelectedBlockExpanded =
+      this.selectedBlockId !== null && this.expandedBlockIds.has(this.selectedBlockId)
+
+    for (const ev of this.edgeVisuals) {
+      if (!ev.labelSprite) continue
+      const shouldConsider = inspectingBlock
+        ? ev.isHighlighted
+        : hasHighlightedEdges && ev.isHighlighted
+      ev.labelSprite.getWorldPosition(this.scratchVec)
+      const dist = this.camera.position.distanceTo(this.scratchVec)
+      const edgeState = getEdgeLabelState({
+        dist,
+        targetDist,
+        shouldConsider,
+        isSelectedBlockExpanded,
+      })
+      ev.labelSprite.visible = edgeState.visible
+      if (edgeState.visible) {
+        ev.labelSprite.scale.set(edgeState.scaleWidth, edgeState.scaleWidth * 0.175, 1)
+      }
+    }
+
+    this.updateLabelScales(targetDist)
     this.deoverlapScreenLabels()
 
     if (this.recyclePulseBoost > 0) {
@@ -2194,13 +3113,6 @@ export class SceneEngine {
 
     const pos = new THREE.Vector3()
     for (const ev of this.edgeVisuals) {
-      if (ev.labelSprite && ev.labelSprite.visible) {
-        ev.labelSprite.getWorldPosition(this.scratchVec)
-        const dist = this.camera.position.distanceTo(this.scratchVec)
-        const es = THREE.MathUtils.clamp(dist * 0.085, 2.6, 5.2)
-        ev.labelSprite.scale.set(es, es * 0.175, 1)
-      }
-
       if (isOverviewWave) {
         let eGlow: number
         if (ev.spec.kind === 'recycle') {
@@ -2271,7 +3183,6 @@ export class SceneEngine {
     const height = Math.max(1, this.renderer.domElement.clientHeight)
     const tanHalfFov = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) * 0.5)
 
-    type ScreenRect = { left: number; right: number; top: number; bottom: number }
     const placedRects: ScreenRect[] = []
 
     const computeRect = (sprite: THREE.Sprite, pad = 4): ScreenRect | null => {
@@ -2296,45 +3207,62 @@ export class SceneEngine {
       }
     }
 
-    const overlaps = (a: ScreenRect, b: ScreenRect) =>
-      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+    const tryPlace = (sprite: THREE.Sprite, pad: number, force = false): boolean => {
+      const rect = computeRect(sprite, pad)
+      if (!rect) {
+        sprite.visible = false
+        return false
+      }
+      if (!force && placedRects.some(r => rectsOverlap(rect, r))) {
+        sprite.visible = false
+        return false
+      }
+      placedRects.push(rect)
+      return true
+    }
 
-    for (const visual of this.blockVisuals.values()) {
+    const hasFocus = this.focusBlockIds.size > 0
+    const activeBlocks: THREE.Sprite[] = []
+    const focusedBlocks: THREE.Sprite[] = []
+    const otherBlocks: THREE.Sprite[] = []
+
+    for (const [id, visual] of this.blockVisuals) {
       const activeSprite = visual.compactLabelSprite.visible
         ? visual.compactLabelSprite
         : visual.labelSprite
       if (!activeSprite.visible || activeSprite.material.opacity < 0.25) continue
-      const rect = computeRect(activeSprite, 12)
-      if (rect) placedRects.push(rect)
+      if (id === this.selectedBlockId || id === this.hoveredBlockId) {
+        activeBlocks.push(activeSprite)
+      } else if (hasFocus && this.focusBlockIds.has(id)) {
+        focusedBlocks.push(activeSprite)
+      } else {
+        otherBlocks.push(activeSprite)
+      }
     }
+
+    for (const sprite of activeBlocks) tryPlace(sprite, 8, true)
+    for (const sprite of focusedBlocks) tryPlace(sprite, 8)
+    for (const sprite of otherBlocks) tryPlace(sprite, 8)
 
     if (this.recycleBadgeSprite && this.recycleBadgeSprite.visible) {
-      const rect = computeRect(this.recycleBadgeSprite, 12)
-      if (rect) placedRects.push(rect)
+      tryPlace(this.recycleBadgeSprite, 8)
     }
 
-    const hasHighlightedEdges = this.highlightEdgeIds.size > 0
-    const inspectingBlock = this.selectedBlockId !== null
+    for (const sprite of this.externalLabelSprites) {
+      if (!sprite.visible) continue
+      tryPlace(sprite, 8)
+    }
+
     for (const ev of this.edgeVisuals) {
-      if (!ev.labelSprite) continue
-      const shouldConsider = inspectingBlock
-        ? ev.isHighlighted
-        : hasHighlightedEdges && ev.isHighlighted
-      if (!shouldConsider) {
-        ev.labelSprite.visible = false
-        continue
-      }
+      if (!ev.labelSprite || !ev.labelSprite.visible) continue
+      tryPlace(ev.labelSprite, 10)
+    }
 
-      const rect = computeRect(ev.labelSprite, 12)
-      if (!rect) {
-        ev.labelSprite.visible = false
-        continue
-      }
-
-      const collides = placedRects.some(r => overlaps(rect, r))
-      ev.labelSprite.visible = !collides
-      if (!collides) {
-        placedRects.push(rect)
+    for (const visual of this.blockVisuals.values()) {
+      if (!visual.detailedVisual || !visual.detailedVisual.group.visible) continue
+      for (const sprite of visual.detailedVisual.miniLabels) {
+        if (!sprite.visible) continue
+        tryPlace(sprite, 3)
       }
     }
   }

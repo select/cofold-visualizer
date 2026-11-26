@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { MatrixStyle } from '~/types/architecture'
+import { PLDDT_COLORS, plddtToCss } from './cifRibbon'
 
 function seededNoise(seed: number): number {
   const x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453
@@ -615,4 +616,112 @@ export function createRecycleLoopBadgeSprite(text: string, isDark: boolean): THR
   sprite.renderOrder = 23
   sprite.userData.aspect = width / height
   return sprite
+}
+
+export function createPlddtPlotTexture(isDark: boolean): THREE.CanvasTexture {
+  const width = 512
+  const height = 360
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+
+  if (ctx) {
+    ctx.fillStyle = isDark ? '#0f172a' : '#ffffff'
+    ctx.fillRect(0, 0, width, height)
+
+    const padL = 52
+    const padR = 64
+    const padT = 36
+    const padB = 44
+    const plotW = width - padL - padR
+    const plotH = height - padT - padB
+
+    // Title
+    ctx.fillStyle = isDark ? '#e2e8f0' : '#0f172a'
+    ctx.font = '700 18px Inter, system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('pLDDT Score Plot', padL + plotW / 2, 22)
+
+    // Axes box
+    ctx.strokeStyle = isDark ? '#475569' : '#64748b'
+    ctx.lineWidth = 2
+    ctx.strokeRect(padL, padT, plotW, plotH)
+
+    // Y ticks (0, 20, 40, 60, 80, 100)
+    ctx.fillStyle = isDark ? '#94a3b8' : '#475569'
+    ctx.font = '500 12px ui-monospace, monospace'
+    ctx.textAlign = 'right'
+    ctx.textBaseline = 'middle'
+    for (const v of [0, 20, 40, 60, 80, 100]) {
+      const y = padT + plotH * (1 - v / 100)
+      ctx.fillText(String(v), padL - 8, y)
+      ctx.beginPath()
+      ctx.moveTo(padL - 4, y)
+      ctx.lineTo(padL, y)
+      ctx.stroke()
+    }
+
+    // X label
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    ctx.fillText('Residue Index', padL + plotW / 2, padT + plotH + 14)
+
+    // Generate deterministic pLDDT profile matching the reference plot
+    const nPts = 140
+    const scores: number[] = []
+    for (let i = 0; i < nPts; i++) {
+      const x = i / (nPts - 1)
+      let base = 20
+      if (x > 0.48 && x < 0.56) {
+        base = 20 + ((x - 0.48) / 0.08) * 74
+      } else if (x >= 0.56 && x <= 0.8) {
+        base = 94 - (x > 0.64 && x < 0.67 ? 8 : 0)
+      } else if (x > 0.8 && x < 0.84) {
+        base = 94 - ((x - 0.8) / 0.04) * 38
+      } else if (x >= 0.84) {
+        base = 56 + 4 * Math.sin(x * 40)
+      }
+      const jitter = Math.sin(i * 1.9) * 3.2 + Math.cos(i * 4.3) * 1.8
+      scores.push(Math.max(5, Math.min(99, base + jitter)))
+    }
+
+    ctx.lineWidth = 3
+    ctx.lineCap = 'round'
+    for (let i = 0; i < nPts - 1; i++) {
+      const x0 = padL + (i / (nPts - 1)) * plotW
+      const y0 = padT + plotH * (1 - scores[i]! / 100)
+      const x1 = padL + ((i + 1) / (nPts - 1)) * plotW
+      const y1 = padT + plotH * (1 - scores[i + 1]! / 100)
+      ctx.strokeStyle = plddtToCss((scores[i]! + scores[i + 1]!) * 0.5)
+      ctx.beginPath()
+      ctx.moveTo(x0, y0)
+      ctx.lineTo(x1, y1)
+      ctx.stroke()
+    }
+
+    // Colorbar on right using canonical AlphaFold pLDDT bands
+    const cbX = padL + plotW + 14
+    const cbW = 14
+    const grad = ctx.createLinearGradient(0, padT + plotH, 0, padT)
+    grad.addColorStop(0, PLDDT_COLORS.veryLow)
+    grad.addColorStop(0.499, PLDDT_COLORS.veryLow)
+    grad.addColorStop(0.5, PLDDT_COLORS.low)
+    grad.addColorStop(0.699, PLDDT_COLORS.low)
+    grad.addColorStop(0.7, PLDDT_COLORS.confident)
+    grad.addColorStop(0.899, PLDDT_COLORS.confident)
+    grad.addColorStop(0.9, PLDDT_COLORS.veryHigh)
+    grad.addColorStop(1, PLDDT_COLORS.veryHigh)
+    ctx.fillStyle = grad
+    ctx.fillRect(cbX, padT, cbW, plotH)
+    ctx.strokeStyle = isDark ? '#475569' : '#64748b'
+    ctx.lineWidth = 1.5
+    ctx.strokeRect(cbX, padT, cbW, plotH)
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.anisotropy = 4
+  texture.needsUpdate = true
+  return texture
 }

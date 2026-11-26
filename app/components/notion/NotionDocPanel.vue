@@ -1,9 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import CodeSnippetViewer from '~/components/notion/CodeSnippetViewer.vue'
+import CifOutputExamples from '~/components/notion/CifOutputExamples.vue'
+import InputSourceExamples from '~/components/notion/InputSourceExamples.vue'
 import NotionToggle from '~/components/notion/NotionToggle.vue'
 import { useVisualizerStore } from '~/stores/useVisualizerStore'
-import type { TensorBlock3D, WalkthroughStep } from '~/types/architecture'
+import type {
+  InputSourceId,
+  InputSourceSpec,
+  OutputSpec,
+  TensorBlock3D,
+  WalkthroughStep,
+} from '~/types/architecture'
 
 const props = withDefaults(defineProps<{ centered?: boolean }>(), { centered: false })
 
@@ -12,6 +20,28 @@ const scrollRef = ref<HTMLElement | null>(null)
 
 const step = computed<WalkthroughStep | null>(() => store.activeStep)
 const block = computed<TensorBlock3D | null>(() => store.selectedBlock)
+const inputSource = computed<InputSourceSpec | null>(() => store.selectedInputSource)
+const outputSpec = computed<OutputSpec | null>(() => store.selectedOutput)
+
+const outputSourceBlocks = computed<TensorBlock3D[]>(() => {
+  if (!outputSpec.value) return []
+  return outputSpec.value.sourceBlockIds
+    .map(id => blockById.value.get(id))
+    .filter((b): b is TensorBlock3D => Boolean(b))
+})
+
+const inputSourceTargetBlock = computed<TensorBlock3D | null>(() => {
+  if (!inputSource.value) return null
+  return blockById.value.get(inputSource.value.targetBlockId) ?? null
+})
+
+const blockInputExampleMode = computed<InputSourceId | null>(() => {
+  const id = block.value?.id
+  if (id === 'input-features') return 'dna-sequence'
+  if (id === 'ref-conformers') return 'small-molecule'
+  if (id === 'msa-embedder') return 'msa-a3m'
+  return null
+})
 
 const blockById = computed(() => {
   const map = new Map<string, TensorBlock3D>()
@@ -70,7 +100,12 @@ function formatSourcePath(path: string): string {
 }
 
 watch(
-  () => [store.activeStepIndex, store.selectedBlockId],
+  () => [
+    store.activeStepIndex,
+    store.selectedBlockId,
+    store.selectedInputSourceId,
+    store.selectedOutputId,
+  ],
   async () => {
     await nextTick()
     scrollRef.value?.scrollTo({ top: 0 })
@@ -93,8 +128,133 @@ watch(
         class="mx-auto w-full px-6 pb-16 pt-8 sm:px-10"
         :class="props.centered ? 'max-w-3xl sm:pt-16' : 'max-w-[720px]'"
       >
+        <!-- ============ OUTPUT INSPECTOR ============ -->
+        <template v-if="outputSpec">
+          <button
+            type="button"
+            class="mb-6 inline-flex items-center gap-1.5 rounded-full border border-n-border px-2.5 py-1 text-[12px] text-n-muted transition-colors hover:bg-n-hover hover:text-n-text"
+            @click="store.selectOutput(null)"
+          >
+            <span class="i-lucide-arrow-left h-3.5 w-3.5"></span>
+            Back to chapter
+            <span v-if="step" class="max-w-[200px] truncate text-n-faint">· {{ step.title }}</span>
+          </button>
+
+          <div
+            class="mb-3 grid h-[52px] w-[52px] place-items-center rounded-lg border border-n-border"
+          >
+            <span
+              class="h-6 w-6 rounded-[5px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)]"
+              :style="{ backgroundColor: outputSpec.color }"
+            ></span>
+          </div>
+          <h1 class="text-[32px] font-bold leading-[1.2] tracking-[-0.01em] text-n-text">
+            {{ outputSpec.label }}
+          </h1>
+          <p class="mt-1.5 text-[15px] text-n-muted">
+            {{ outputSpec.subtitle }}
+          </p>
+
+          <dl class="mt-6 border-y border-n-border py-2 text-[14px]">
+            <div class="flex min-h-[34px] items-start py-1">
+              <dt class="flex w-[150px] shrink-0 items-center gap-2 pt-[3px] text-n-muted">
+                <span class="i-lucide-file-text h-3.5 w-3.5"></span>Format
+              </dt>
+              <dd class="pt-[2px]">
+                <code class="n-code n-code-neutral">{{ outputSpec.formatBadge }}</code>
+              </dd>
+            </div>
+            <div v-if="outputSourceBlocks.length" class="flex min-h-[34px] items-start py-1">
+              <dt class="flex w-[150px] shrink-0 items-center gap-2 pt-[3px] text-n-muted">
+                <span class="i-lucide-arrow-left h-3.5 w-3.5"></span>Produced by
+              </dt>
+              <dd class="flex flex-wrap gap-1.5 pt-[2px]">
+                <button
+                  v-for="src in outputSourceBlocks"
+                  :key="src.id"
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-md border border-n-border px-2 py-0.5 text-[13px] text-n-text hover:bg-n-hover"
+                  @click="store.selectBlock(src.id)"
+                  @mouseenter="store.hoverBlock(src.id)"
+                  @mouseleave="store.hoverBlock(null)"
+                >
+                  <span class="h-2 w-2 rounded-sm" :style="{ backgroundColor: src.color }"></span>
+                  {{ src.label }}
+                </button>
+              </dd>
+            </div>
+          </dl>
+
+          <p class="mt-6 text-[16px] leading-[1.7] text-n-text">{{ outputSpec.description }}</p>
+
+          <CifOutputExamples v-if="outputSpec.id === 'cif-structure'" />
+        </template>
+
+        <!-- ============ INPUT SOURCE INSPECTOR ============ -->
+        <template v-else-if="inputSource">
+          <button
+            type="button"
+            class="mb-6 inline-flex items-center gap-1.5 rounded-full border border-n-border px-2.5 py-1 text-[12px] text-n-muted transition-colors hover:bg-n-hover hover:text-n-text"
+            @click="store.selectInputSource(null)"
+          >
+            <span class="i-lucide-arrow-left h-3.5 w-3.5"></span>
+            Back to chapter
+            <span v-if="step" class="max-w-[200px] truncate text-n-faint">· {{ step.title }}</span>
+          </button>
+
+          <div
+            class="mb-3 grid h-[52px] w-[52px] place-items-center rounded-lg border border-n-border"
+          >
+            <span
+              class="h-6 w-6 rounded-[5px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)]"
+              :style="{ backgroundColor: inputSource.color }"
+            ></span>
+          </div>
+          <h1 class="text-[32px] font-bold leading-[1.2] tracking-[-0.01em] text-n-text">
+            {{ inputSource.label }}
+          </h1>
+          <p class="mt-1.5 text-[15px] text-n-muted">
+            {{ inputSource.subtitle }}
+          </p>
+
+          <dl class="mt-6 border-y border-n-border py-2 text-[14px]">
+            <div class="flex min-h-[34px] items-start py-1">
+              <dt class="flex w-[150px] shrink-0 items-center gap-2 pt-[3px] text-n-muted">
+                <span class="i-lucide-file-text h-3.5 w-3.5"></span>Format
+              </dt>
+              <dd class="pt-[2px]">
+                <code class="n-code n-code-neutral">{{ inputSource.formatBadge }}</code>
+              </dd>
+            </div>
+            <div v-if="inputSourceTargetBlock" class="flex min-h-[34px] items-start py-1">
+              <dt class="flex w-[150px] shrink-0 items-center gap-2 pt-[3px] text-n-muted">
+                <span class="i-lucide-arrow-right h-3.5 w-3.5"></span>Feeds into
+              </dt>
+              <dd class="pt-[2px]">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-md border border-n-border px-2 py-0.5 text-[13px] text-n-text hover:bg-n-hover"
+                  @click="store.selectBlock(inputSourceTargetBlock.id)"
+                  @mouseenter="store.hoverBlock(inputSourceTargetBlock.id)"
+                  @mouseleave="store.hoverBlock(null)"
+                >
+                  <span
+                    class="h-2 w-2 rounded-sm"
+                    :style="{ backgroundColor: inputSourceTargetBlock.color }"
+                  ></span>
+                  {{ inputSourceTargetBlock.label }}
+                </button>
+              </dd>
+            </div>
+          </dl>
+
+          <p class="mt-6 text-[16px] leading-[1.7] text-n-text">{{ inputSource.description }}</p>
+
+          <InputSourceExamples :mode="inputSource.id" />
+        </template>
+
         <!-- ============ BLOCK INSPECTOR ============ -->
-        <template v-if="block">
+        <template v-else-if="block">
           <button
             type="button"
             class="mb-6 inline-flex items-center gap-1.5 rounded-full border border-n-border px-2.5 py-1 text-[12px] text-n-muted transition-colors hover:bg-n-hover hover:text-n-text"
@@ -260,6 +420,8 @@ watch(
               block.formula
             }}</code>
           </div>
+
+          <InputSourceExamples v-if="blockInputExampleMode" :mode="blockInputExampleMode" />
 
           <template v-if="blockNeighbours.inputs.length || blockNeighbours.outputs.length">
             <h3 class="mt-9 text-[18px] font-semibold text-n-text">Data flow</h3>
