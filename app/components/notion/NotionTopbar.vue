@@ -184,5 +184,16 @@ const leaf = computed(() => {
         class="h-4 w-4"
       ></span>
     </button>
+
+    <a
+      href="https://github.com/select/cofold-visualizer"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="n-btn n-btn-icon"
+      aria-label="GitHub repository"
+      title="GitHub repository"
+    >
+      <span class="i-mdi-github h-4 w-4"></span>
+    </a>
   </header>
 </template>

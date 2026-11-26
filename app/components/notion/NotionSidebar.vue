@@ -264,7 +264,7 @@ function inspectBlock(id: string) {
         class="n-row text-[13px]"
       >
         <span class="i-mdi-github h-4 w-4"></span>
-        <span class="truncate">GitHub</span>
+        <span class="truncate">OF3 GitHub</span>
         <span class="i-lucide-arrow-up-right ml-auto h-3.5 w-3.5 text-n-faint"></span>
       </a>
       <template v-if="store.activeModel.papers?.length">
