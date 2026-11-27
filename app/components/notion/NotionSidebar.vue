@@ -293,7 +293,7 @@ function inspectBlock(id: string) {
         <span class="i-lucide-arrow-up-right ml-auto h-3.5 w-3.5 text-n-faint"></span>
       </a>
       <a
-        href="https://github.com/bbycroft/llm-viz"
+        href="https://bbycroft.net/llm"
         target="_blank"
         rel="noopener noreferrer"
         class="n-row text-[13px]"
