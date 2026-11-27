@@ -52,7 +52,6 @@ const BOTTOM_LABEL_BLOCK_IDS = new Set([
   'pairformer-pair',
   'atom-attn-encoder-diff',
   'atom-attn-decoder',
-  'aux-pairformer',
 ])
 
 const OVERVIEW_WAVE_PHASE: Record<string, number> = {
@@ -72,9 +71,9 @@ const OVERVIEW_WAVE_PHASE: Record<string, number> = {
   'atom-attn-encoder-diff': 0.73,
   'diffusion-transformer': 0.78,
   'atom-attn-decoder': 0.83,
-  'denoised-coords': 0.87,
-  'aux-pairformer': 0.92,
-  'confidence-outputs': 0.96,
+  'denoised-coords': 0.86,
+  'aux-pairformer': 0.89,
+  'confidence-outputs': 0.93,
 }
 
 const TRUNK_LOOP_BLOCK_PHASE: Record<string, number> = {
@@ -216,6 +215,12 @@ export class SceneEngine {
       materials: THREE.Material[]
       phase: number
       arrow: {
+        ribbonMesh: THREE.Mesh
+        outlineLine: THREE.Line
+        ribbonMat: THREE.MeshBasicMaterial
+        outlineMat: THREE.LineBasicMaterial
+      } | null
+      extraArrow?: {
         ribbonMesh: THREE.Mesh
         outlineLine: THREE.Line
         ribbonMat: THREE.MeshBasicMaterial
@@ -475,36 +480,36 @@ export class SceneEngine {
       },
       {
         title: 'Confidence Heads',
-        cx: 55.2,
+        cx: 46.7,
         cz: 0.0,
         width: 12.5,
         depth: 7.5,
         color: 0x16a34a,
-        phase: 0.92,
+        phase: 0.9,
         waveWidth: 0.09,
         blockIds: ['aux-pairformer', 'confidence-outputs'],
       },
       {
-        title: 'External Output · CIF',
-        cx: 41.7,
-        cz: 1.6,
-        width: 4.8,
-        depth: 5.4,
-        color: 0xea580c,
-        phase: 0.85,
-        waveWidth: 0.08,
-        followRightOfBlockId: 'denoised-coords',
-      },
-      {
         title: 'External Outputs',
-        cx: 60.4,
+        cx: 56.1,
         cz: 0.0,
         width: 5.2,
         depth: 6.4,
         color: 0xea580c,
-        phase: 0.96,
+        phase: 0.94,
         waveWidth: 0.08,
         followRightOfBlockId: 'confidence-outputs',
+      },
+      {
+        title: 'External Output · CIF',
+        cx: 63.6,
+        cz: 1.6,
+        width: 4.8,
+        depth: 5.4,
+        color: 0xea580c,
+        phase: 0.97,
+        waveWidth: 0.08,
+        followRightOfBlockId: 'denoised-coords',
       },
     ]
 
@@ -956,6 +961,7 @@ export class SceneEngine {
       addOutputLabel('3D Structure (.cif)', 'All-atom coordinates', group, 3.8)
 
       const arrow = makeArrow(new THREE.Vector3(33.5, 0, 0), new THREE.Vector3(34.4, 0, 1.6))
+      const extraArrow = makeArrow(new THREE.Vector3(57.8, 0, 0), new THREE.Vector3(60.4, 0, 1.6))
       materials.forEach(m => {
         m.userData.baseOpacity = m.opacity
       })
@@ -963,8 +969,9 @@ export class SceneEngine {
         group,
         docFrameLine,
         materials,
-        phase: 0.89,
+        phase: 0.97,
         arrow,
+        extraArrow,
       })
     }
 
@@ -1046,7 +1053,7 @@ export class SceneEngine {
         group,
         docFrameLine,
         materials,
-        phase: 0.98,
+        phase: 0.94,
         arrow,
       })
     }
@@ -1077,14 +1084,14 @@ export class SceneEngine {
         }
       } else if (plate.followRightOfBlockId === 'denoised-coords') {
         const v = this.blockVisuals.get('denoised-coords')
-        const auxV = this.blockVisuals.get('aux-pairformer')
+        const confV = this.blockVisuals.get('confidence-outputs')
         if (v) {
           const [activeSx, activeSy] = this.getActiveBlockSize(v)
           const denoisedRight = v.group.position.x + activeSx / 2
-          const auxLeft = auxV
-            ? auxV.group.position.x - this.getActiveBlockSize(auxV)[0] / 2
-            : denoisedRight + 9.6
-          const cx = (denoisedRight + auxLeft) / 2
+          const confRight = confV
+            ? confV.group.position.x + this.getActiveBlockSize(confV)[0] / 2
+            : denoisedRight + 15.0
+          const cx = confRight + 11.6
           const cz = 1.6
           plate.padMesh.position.set(cx, -7.75, cz)
           plate.border.position.set(cx, -7.74, cz)
@@ -1100,7 +1107,39 @@ export class SceneEngine {
                 centerY - activeSy * 0.12,
                 v.group.position.z
               )
-              const end = new THREE.Vector3(cx - 3.2, centerY, cz)
+              const end = new THREE.Vector3(cx - 3.2, centerY - 0.65, cz)
+              const midA = new THREE.Vector3(
+                THREE.MathUtils.lerp(start.x, end.x, 0.3),
+                centerY - 2.3,
+                4.8
+              )
+              const midB = new THREE.Vector3(
+                THREE.MathUtils.lerp(start.x, end.x, 0.72),
+                centerY - 2.3,
+                4.8
+              )
+              const curve = new THREE.CatmullRomCurve3([start, midA, midB, end])
+              const shaftWidth = 0.42
+              const headWidth = shaftWidth * 1.85
+              const headLength = Math.min(0.82, start.distanceTo(end) * 0.45)
+              const { ribbonGeo, outlineGeo } = this.buildRibbonArrowGeometries(
+                curve,
+                shaftWidth,
+                headWidth,
+                headLength,
+                32,
+                true
+              )
+              cifOut.arrow.ribbonMesh.geometry.dispose()
+              cifOut.arrow.outlineLine.geometry.dispose()
+              cifOut.arrow.ribbonMesh.geometry = ribbonGeo
+              cifOut.arrow.outlineLine.geometry = outlineGeo
+              this.disposableGeometries.push(ribbonGeo, outlineGeo)
+            }
+            if (cifOut.extraArrow) {
+              const confOutX = confRight + 4.4
+              const start = new THREE.Vector3(confOutX + 1.75, 0, 0)
+              const end = new THREE.Vector3(cx - 3.2, centerY + 0.65, cz)
               const mid = start.clone().lerp(end, 0.5)
               const curve = new THREE.CatmullRomCurve3([start, mid, end])
               const shaftWidth = 0.42
@@ -1114,10 +1153,10 @@ export class SceneEngine {
                 24,
                 true
               )
-              cifOut.arrow.ribbonMesh.geometry.dispose()
-              cifOut.arrow.outlineLine.geometry.dispose()
-              cifOut.arrow.ribbonMesh.geometry = ribbonGeo
-              cifOut.arrow.outlineLine.geometry = outlineGeo
+              cifOut.extraArrow.ribbonMesh.geometry.dispose()
+              cifOut.extraArrow.outlineLine.geometry.dispose()
+              cifOut.extraArrow.ribbonMesh.geometry = ribbonGeo
+              cifOut.extraArrow.outlineLine.geometry = outlineGeo
               this.disposableGeometries.push(ribbonGeo, outlineGeo)
             }
           }
@@ -1872,21 +1911,6 @@ export class SceneEngine {
       for (let i = 0; i <= 14; i++) pts.push(startBezier.getPoint(i / 14))
       for (let i = 1; i < 6; i++) pts.push(p1.clone().lerp(p2, i / 6))
       for (let i = 0; i <= 16; i++) pts.push(endBezier.getPoint(i / 16))
-      return new THREE.CatmullRomCurve3(pts, false, 'centripetal')
-    }
-
-    if (edge.id === 'e-coords-to-aux') {
-      const archY = Math.max(rightCenter.y, leftCenter.y) + 6.4
-      const bezier = new THREE.CubicBezierCurve3(
-        rightCenter,
-        new THREE.Vector3(rightCenter.x + 2.6, archY, rightCenter.z),
-        new THREE.Vector3(leftCenter.x - 2.6, archY, leftCenter.z),
-        leftCenter
-      )
-      const pts: THREE.Vector3[] = []
-      for (let i = 0; i <= 28; i++) {
-        pts.push(bezier.getPoint(i / 28))
-      }
       return new THREE.CatmullRomCurve3(pts, false, 'centripetal')
     }
 
@@ -2901,6 +2925,10 @@ export class SceneEngine {
           out.arrow.ribbonMat.opacity = this.isDark ? 0.34 : 0.4
           out.arrow.outlineMat.opacity = this.isDark ? 0.4 : 0.48
         }
+        if (out.extraArrow) {
+          out.extraArrow.ribbonMat.opacity = this.isDark ? 0.34 : 0.4
+          out.extraArrow.outlineMat.opacity = this.isDark ? 0.4 : 0.48
+        }
       }
       this.refreshVisualStates()
     }
@@ -3001,6 +3029,10 @@ export class SceneEngine {
         if (out.arrow) {
           out.arrow.ribbonMat.opacity = arrOp
           out.arrow.outlineMat.opacity = outOp
+        }
+        if (out.extraArrow) {
+          out.extraArrow.ribbonMat.opacity = arrOp
+          out.extraArrow.outlineMat.opacity = outOp
         }
       }
     }
