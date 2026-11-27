@@ -22,6 +22,18 @@ import {
 } from './labelVisibility'
 import { MoleculeCloud } from './moleculeCloud'
 import {
+  DEFAULT_SCENE_WIDTH,
+  computeActivePlateTarget,
+  computeCycleGlow,
+  computeEffectiveWaveSpeed,
+  computeFollowAlpha,
+  computeSceneFitDistance,
+  computeStagePlateGlow,
+  computeWaveGlow,
+  shouldFollowOverviewWave,
+  type WeightedStagePlate,
+} from './overviewCameraFollow'
+import {
   createAxisTagSprite,
   createEdgeLabelSprite,
   createLabelSprite,
@@ -227,6 +239,8 @@ export class SceneEngine {
   >()
 
   private cameraFlying = false
+  private isUserDraggingControls = false
+  private readonly followScratchDelta = new THREE.Vector3()
   private readonly baseCamPos = new THREE.Vector3(11, 36, 96)
   private readonly baseTarget = new THREE.Vector3(13.5, -1, 0)
   private readonly desiredCamPos = new THREE.Vector3(11, 36, 96)
@@ -273,6 +287,7 @@ export class SceneEngine {
     this.controls.maxPolarAngle = Math.PI * 0.85
     this.controls.target.copy(this.desiredTarget)
     this.controls.addEventListener('start', this.handleControlsStart)
+    this.controls.addEventListener('end', this.handleControlsEnd)
 
     this.hemiLight = new THREE.HemisphereLight(0xffffff, 0xcbd5e1, 0.9)
     this.keyLight = new THREE.DirectionalLight(0xffffff, 1.15)
@@ -398,6 +413,8 @@ export class SceneEngine {
       color: number
       phase: number
       waveWidth: number
+      blockIds?: string[]
+      followRightOfBlockId?: string
     }> = [
       {
         title: 'External Inputs',
@@ -2599,6 +2616,11 @@ export class SceneEngine {
 
   private readonly handleControlsStart = () => {
     this.cameraFlying = false
+    this.isUserDraggingControls = true
+  }
+
+  private readonly handleControlsEnd = () => {
+    this.isUserDraggingControls = false
   }
 
   private readonly handleWheel = () => {
@@ -2804,13 +2826,27 @@ export class SceneEngine {
     }
 
     const targetDist = this.camera.position.distanceTo(this.controls.target)
+    let sceneWidth = DEFAULT_SCENE_WIDTH
+    if (this.stageFloorPlates.length > 0) {
+      let minX = Infinity
+      let maxX = -Infinity
+      for (const plate of this.stageFloorPlates) {
+        const halfW = (plate.baseWidth * plate.padMesh.scale.x) / 2
+        const cx = plate.padMesh.position.x
+        minX = Math.min(minX, cx - halfW)
+        maxX = Math.max(maxX, cx + halfW)
+      }
+      if (Number.isFinite(minX) && Number.isFinite(maxX)) {
+        sceneWidth = maxX - minX
+      }
+    }
+    const fitDist = computeSceneFitDistance(sceneWidth, this.camera.fov, this.camera.aspect)
     const hasFocus = this.focusBlockIds.size > 0
     const isOverviewMode =
       !hasFocus &&
       this.selectedBlockId === null &&
       this.selectedInputSourceId === null &&
-      this.selectedOutputId === null &&
-      targetDist >= 22
+      this.selectedOutputId === null
     const isOverviewWave = isOverviewMode && this.isFlowPlaying
 
     if (isOverviewWave) {
@@ -2826,7 +2862,8 @@ export class SceneEngine {
           this.lastReportedPause = 0
           this.callbacks.onOverviewPauseChange?.(0, this.overviewPauseDuration)
         }
-        this.overviewWaveTime += dt / 16.0
+        this.overviewWaveTime +=
+          (dt / 16.0) * computeEffectiveWaveSpeed(targetDist, this.overviewWaveTime, fitDist)
         if (this.overviewWaveTime >= 1.0) {
           this.overviewWaveTime = 0
           this.overviewPauseRemaining = this.overviewPauseDuration
@@ -2870,34 +2907,26 @@ export class SceneEngine {
     this.wasOverviewWave = isOverviewWave
 
     const activeWaveT = this.overviewPauseRemaining > 0 ? -1 : this.overviewWaveTime
-    const waveGlow = (center: number, width = 0.085): number => {
-      if (activeWaveT < 0) return 0
-      const d = Math.abs(activeWaveT - center)
-      return Math.exp(-Math.pow(d / width, 2))
-    }
+    const waveGlow = (center: number, width = 0.085): number =>
+      computeWaveGlow(activeWaveT, center, width)
 
     const inTrunkLoop = activeWaveT >= 0.26 && activeWaveT <= 0.64
     const trunkU = inTrunkLoop ? ((activeWaveT - 0.26) / 0.38) * 3 : 0
     const cycleU = inTrunkLoop ? trunkU - Math.floor(trunkU) : 0
-    const cycleGlow = (center: number, width = 0.022): number => {
-      let best = 0
-      for (let k = 0; k < 3; k++) {
-        const c = 0.26 + ((k + center) / 3) * 0.38
-        const g = waveGlow(c, width)
-        if (g > best) best = g
-      }
-      return best
-    }
+    const cycleGlow = (center: number, width = 0.022): number =>
+      computeCycleGlow(activeWaveT, center, width)
 
     if (isOverviewWave) {
+      const weightedPlates: WeightedStagePlate[] = []
       for (let pi = 0; pi < this.stageFloorPlates.length; pi++) {
         const plate = this.stageFloorPlates[pi]!
-        let sGlow = waveGlow(plate.phase, plate.width)
-        if (pi === 2) {
-          sGlow = Math.max(sGlow, cycleGlow(0.24, 0.032))
-        } else if (pi === 3) {
-          sGlow = Math.max(sGlow, cycleGlow(0.52, 0.032))
-        }
+        const sGlow = computeStagePlateGlow(pi, plate.phase, plate.width, activeWaveT)
+        weightedPlates.push({
+          x: plate.padMesh.position.x,
+          y: -1,
+          z: plate.padMesh.position.z,
+          glow: sGlow,
+        })
         plate.padMat.opacity = THREE.MathUtils.lerp(
           this.isDark ? 0.05 : 0.04,
           this.isDark ? 0.72 : 0.68,
@@ -2905,6 +2934,30 @@ export class SceneEngine {
         )
         plate.borderMat.opacity = THREE.MathUtils.lerp(this.isDark ? 0.18 : 0.15, 0.98, sGlow)
         plate.headerMat.opacity = THREE.MathUtils.lerp(0.55, 1.0, sGlow)
+      }
+
+      if (
+        shouldFollowOverviewWave({
+          isOverviewWave,
+          targetDist,
+          cameraFlying: this.cameraFlying,
+          isUserDraggingControls: this.isUserDraggingControls,
+          maxFollowDist: fitDist,
+        })
+      ) {
+        const followTarget = computeActivePlateTarget(weightedPlates)
+        if (followTarget) {
+          const alpha = computeFollowAlpha(dt, 3.0)
+          this.followScratchDelta
+            .set(
+              followTarget.x - this.controls.target.x,
+              followTarget.y - this.controls.target.y,
+              followTarget.z - this.controls.target.z
+            )
+            .multiplyScalar(alpha)
+          this.controls.target.add(this.followScratchDelta)
+          this.camera.position.add(this.followScratchDelta)
+        }
       }
       for (const [extId, ext] of this.externalInputVisuals) {
         const xGlow =
@@ -3303,6 +3356,7 @@ export class SceneEngine {
     dom.removeEventListener('wheel', this.handleWheel)
 
     this.controls.removeEventListener('start', this.handleControlsStart)
+    this.controls.removeEventListener('end', this.handleControlsEnd)
     this.controls.dispose()
 
     this.clearModelScene()
