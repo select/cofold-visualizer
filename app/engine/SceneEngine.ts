@@ -830,7 +830,7 @@ export class SceneEngine {
     if (this.externalOutputVisuals.has('cif-structure')) {
       inputs.push({
         id: '__external-cif-structure__',
-        basePosition: [43.7, 0.0, 1.6],
+        basePosition: [63.6, 0.0, 1.6],
         baseSize: [10.8, 5.8, 5.4],
         activeSize: [10.8, 5.8, 5.4],
         isExpanded: false,
@@ -1745,33 +1745,38 @@ export class SceneEngine {
     startDy = 0,
     endDy = 0
   ): THREE.CubicBezierCurve3[] {
+    const [toSx] = this.getActiveBlockSize(toBlock)
+    const [, fromSy] = this.getActiveBlockSize(fromBlock)
     const start = new THREE.Vector3(
       this.getBlockRightFaceX(fromBlock),
       fromBlock.group.position.y + startDy,
       fromBlock.group.position.z
     )
     const end = new THREE.Vector3(
-      toBlock.group.position.x - toBlock.spec.size[0] / 2,
+      toBlock.group.position.x - toSx / 2,
       toBlock.group.position.y + endDy,
       toBlock.group.position.z - 0.1
     )
+    const archY = Math.max(9.4, fromBlock.group.position.y + fromSy / 2 + 3.2)
+    const dropX = end.x - 4.4
+    const midX = (start.x + dropX) * 0.5
     return [
       new THREE.CubicBezierCurve3(
         start,
         new THREE.Vector3(start.x + 3.1, start.y, -1.9),
-        new THREE.Vector3(start.x + 3.6, 9.4, -2.5),
-        new THREE.Vector3(0.0, 9.4, -2.5)
+        new THREE.Vector3(start.x + 3.6, archY, -2.5),
+        new THREE.Vector3(midX, archY, -2.5)
       ),
       new THREE.CubicBezierCurve3(
-        new THREE.Vector3(0.0, 9.4, -2.5),
-        new THREE.Vector3(-12.0, 9.4, -2.2),
-        new THREE.Vector3(-17.2, 9.4, -1.2),
-        new THREE.Vector3(-17.2, 2.4, -0.5)
+        new THREE.Vector3(midX, archY, -2.5),
+        new THREE.Vector3(THREE.MathUtils.lerp(midX, dropX, 0.55), archY, -2.2),
+        new THREE.Vector3(dropX, archY, -1.2),
+        new THREE.Vector3(dropX, end.y + 2.4, -0.5)
       ),
       new THREE.CubicBezierCurve3(
-        new THREE.Vector3(-17.2, 2.4, -0.5),
-        new THREE.Vector3(-17.2, end.y, end.z),
-        new THREE.Vector3(-16.0, end.y, end.z),
+        new THREE.Vector3(dropX, end.y + 2.4, -0.5),
+        new THREE.Vector3(dropX, end.y, end.z),
+        new THREE.Vector3(end.x - 1.4, end.y, end.z),
         end
       ),
     ]
