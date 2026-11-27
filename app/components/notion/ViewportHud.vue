@@ -192,6 +192,11 @@ const tooltipStyle = computed(() => {
           <button
             type="button"
             class="n-btn n-btn-icon"
+            :class="
+              store.isFlowPlaying
+                ? '!bg-[var(--n-callout-blue)] !text-n-accent ring-1 ring-n-accent/30 hover:!bg-n-accent hover:!text-white'
+                : '!bg-[var(--n-callout-amber)] !text-amber-600 dark:!text-amber-400 ring-1 ring-amber-500/35 hover:!bg-amber-500 hover:!text-white'
+            "
             :aria-label="store.isFlowPlaying ? 'Pause data flow' : 'Play data flow'"
             :title="store.isFlowPlaying ? 'Pause data flow' : 'Play data flow'"
             @click="store.toggleFlow()"
