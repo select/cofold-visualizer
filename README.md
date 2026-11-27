@@ -93,8 +93,9 @@ Contributions are warmly welcomed! Whether it's improving 3D module details, add
    ```
 4. **Open a Pull Request** against `main` with a clear description (and screenshots if changing visuals).
 
-## References
+## Inspiration & References
 
+- Inspired by [bbycroft/llm-viz](https://github.com/bbycroft/llm-viz) — interactive 3D LLM architecture visualizer
 - [OpenFold3 GitHub Repository](https://github.com/aqlaboratory/openfold-3)
 - [OpenFold3 Technical Report](https://portal.openfold.omsf.io/reports/of3p2_technical_report.pdf)
 - [AlphaFold 3 Paper (Nature, 2024)](https://www.nature.com/articles/s41586-024-07487-w)

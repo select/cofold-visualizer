@@ -292,6 +292,16 @@ function inspectBlock(id: string) {
         <span class="truncate">Read the paper</span>
         <span class="i-lucide-arrow-up-right ml-auto h-3.5 w-3.5 text-n-faint"></span>
       </a>
+      <a
+        href="https://github.com/bbycroft/llm-viz"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="n-row text-[13px]"
+      >
+        <span class="i-lucide-sparkles h-4 w-4"></span>
+        <span class="truncate">Inspired by llm-viz</span>
+        <span class="i-lucide-arrow-up-right ml-auto h-3.5 w-3.5 text-n-faint"></span>
+      </a>
     </div>
   </aside>
 </template>
