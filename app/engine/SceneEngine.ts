@@ -227,10 +227,10 @@ export class SceneEngine {
   >()
 
   private cameraFlying = false
-  private readonly baseCamPos = new THREE.Vector3(3, 22, 68)
-  private readonly baseTarget = new THREE.Vector3(3, -0.5, 0)
-  private readonly desiredCamPos = new THREE.Vector3(3, 22, 68)
-  private readonly desiredTarget = new THREE.Vector3(3, -0.5, 0)
+  private readonly baseCamPos = new THREE.Vector3(11, 36, 96)
+  private readonly baseTarget = new THREE.Vector3(13.5, -1, 0)
+  private readonly desiredCamPos = new THREE.Vector3(11, 36, 96)
+  private readonly desiredTarget = new THREE.Vector3(13.5, -1, 0)
 
   private rafId: number | null = null
   private lastTime = performance.now()
@@ -260,7 +260,7 @@ export class SceneEngine {
     container.appendChild(this.renderer.domElement)
 
     this.scene = new THREE.Scene()
-    this.camera = new THREE.PerspectiveCamera(44, width / height, 0.2, 300)
+    this.camera = new THREE.PerspectiveCamera(44, width / height, 0.2, 600)
     this.applyAspectFraming()
     this.camera.position.copy(this.desiredCamPos)
 
@@ -269,7 +269,7 @@ export class SceneEngine {
     this.controls.dampingFactor = 0.28
     this.controls.zoomToCursor = true
     this.controls.minDistance = 4
-    this.controls.maxDistance = 165
+    this.controls.maxDistance = 320
     this.controls.maxPolarAngle = Math.PI * 0.85
     this.controls.target.copy(this.desiredTarget)
     this.controls.addEventListener('start', this.handleControlsStart)
@@ -301,12 +301,12 @@ export class SceneEngine {
 
   private createGrid(dark: boolean): THREE.GridHelper {
     const grid = new THREE.GridHelper(
-      110,
-      55,
+      140,
+      70,
       dark ? 0x3f3f46 : 0xcbd5e1,
       dark ? 0x27272a : 0xe2e8f0
     )
-    grid.position.y = -7.8
+    grid.position.set(13, -7.8, 0)
     const mat = grid.material
     if (Array.isArray(mat)) {
       mat.forEach(m => {
@@ -339,7 +339,7 @@ export class SceneEngine {
   private applyThemeColors() {
     const bgHex = this.isDark ? 0x161618 : 0xfafaf9
     this.scene.background = new THREE.Color(bgHex)
-    this.scene.fog = new THREE.Fog(bgHex, 100, 270)
+    this.scene.fog = new THREE.Fog(bgHex, 220, 520)
 
     this.hemiLight.intensity = 0.95
     this.hemiLight.groundColor.setHex(this.isDark ? 0x18181b : 0xcbd5e1)
@@ -805,6 +805,15 @@ export class SceneEngine {
       activeSize: this.getActiveBlockSize(v),
       isExpanded: this.expandedBlockIds.has(v.spec.id) && Boolean(v.detailedVisual),
     }))
+    if (this.externalOutputVisuals.has('cif-structure')) {
+      inputs.push({
+        id: '__external-cif-structure__',
+        basePosition: [43.7, 0.0, 1.6],
+        baseSize: [10.8, 5.8, 5.4],
+        activeSize: [10.8, 5.8, 5.4],
+        isExpanded: false,
+      })
+    }
     const positions = computeExpandedLayout(inputs)
     for (const [id, pos] of positions) {
       const visual = this.blockVisuals.get(id)
@@ -2267,7 +2276,7 @@ export class SceneEngine {
       this.camera.fov = nextFov
       this.camera.updateProjectionMatrix()
     }
-    const aspectScale = Math.min(1.55, Math.max(1, 1.25 / Math.max(0.55, this.camera.aspect)))
+    const aspectScale = Math.min(2.2, Math.max(1, 1.45 / Math.max(0.45, this.camera.aspect)))
     const offset = this.baseCamPos.clone().sub(this.baseTarget).multiplyScalar(aspectScale)
     this.desiredTarget.copy(this.baseTarget)
     this.desiredCamPos.copy(this.baseTarget).add(offset)
