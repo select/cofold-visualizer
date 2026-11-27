@@ -1,3 +1,8 @@
+const baseURL = process.env.NUXT_APP_BASE_URL || '/'
+const siteUrl = 'https://select.github.io/cofold-visualizer'
+const siteTitle = 'Co-Fold Visualized · OpenFold3'
+const siteDescription = 'An interactive 3D walkthrough of the OpenFold3 co-folding architecture.'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -20,13 +25,26 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'Co-Fold Visualized · OpenFold3',
+      title: siteTitle,
+      link: [
+        { rel: 'icon', type: 'image/svg+xml', href: `${baseURL}favicon.svg` },
+        { rel: 'icon', type: 'image/png', sizes: '32x32', href: `${baseURL}favicon-32x32.png` },
+        { rel: 'apple-touch-icon', sizes: '180x180', href: `${baseURL}apple-touch-icon.png` },
+      ],
       meta: [
-        {
-          name: 'description',
-          content:
-            'An interactive 3D, Notion-style walkthrough of the OpenFold3 co-folding architecture.',
-        },
+        { name: 'description', content: siteDescription },
+        { name: 'theme-color', content: '#131316' },
+        { property: 'og:type', content: 'website' },
+        { property: 'og:title', content: siteTitle },
+        { property: 'og:description', content: siteDescription },
+        { property: 'og:url', content: `${siteUrl}/` },
+        { property: 'og:image', content: `${siteUrl}/og-image.png` },
+        { property: 'og:image:width', content: '1200' },
+        { property: 'og:image:height', content: '630' },
+        { name: 'twitter:card', content: 'summary_large_image' },
+        { name: 'twitter:title', content: siteTitle },
+        { name: 'twitter:description', content: siteDescription },
+        { name: 'twitter:image', content: `${siteUrl}/og-image.png` },
       ],
       script: [
         {
